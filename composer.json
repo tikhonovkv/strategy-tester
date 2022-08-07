@@ -1,0 +1,16 @@
+{
+    "name": "base/strategy-tester",
+    "description": "Strategy tester",
+    "require": {
+        "php": "^8.0.2",
+        "laravel/framework": "^9.19"
+    },
+    "autoload": {
+      "psr-4": {
+        "StrategyTester\\": "src/StrategyTester/"
+      }
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.5"
+    }
+}

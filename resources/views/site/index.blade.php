@@ -1,31 +1,31 @@
 @extends('layouts.app')
 
-@section('title', 'Strategy Tester MTF — Результаты Walk-Forward тестирования')
+@section('title', 'Strategy Tester MTF — Результаты Walk-Forward по 10 монетам')
 
 @section('content')
-    <h1>Мультитаймфреймовый ансамбль (1h + 4h + 1d) с защитой от перекупленности</h1>
+    <h1>Мультитаймфреймовый ансамбль (1h + 4h + 1d) по 10 мониторинговым монетам</h1>
     <p class="sub">
-        Обучающий пул: {{ number_format($data['pool_hours'] ?? 70108, 0, '.', ' ') }} размеченных часов (BTC 2021–2026 + ETH 2023–2026) &middot;
+        Обучающий пул: {{ number_format($data['pool_hours'] ?? 270000, 0, '.', ' ') }} часовых свечей по 10 монетам Bybit Spot &middot;
         {{ $data['features_count'] ?? 32 }} признака &middot;
         {{ $data['variants_count'] ?? 24 }} варианта входа и выхода &middot;
-        Честная комиссия {{ $data['fee_pct'] ?? 0.2 }}% на сделку по минутным свечам.
+        Комиссия {{ $data['fee_pct'] ?? 0.2 }}% на сделку.
     </p>
 
     <div class="grid-4">
         <div class="card">
-            <div class="stat-label">BTCUSDT (2024–2026, 3 рукава)</div>
+            <div class="stat-label">Портфель 10 монет (20% клип)</div>
+            <div class="stat-val pos">+161.88%</div>
+            <div style="font-size:13px; color:var(--muted); margin-top:4px;">204 сделки &middot; Среднее на монету +54.59%</div>
+        </div>
+        <div class="card">
+            <div class="stat-label">BTCUSDT (2024–2026)</div>
             <div class="stat-val pos">+96.88%</div>
             <div style="font-size:13px; color:var(--muted); margin-top:4px;">5 из 5 полугодий в плюс (17 сделок)</div>
         </div>
         <div class="card">
-            <div class="stat-label">ETHUSDT (2024–2026, 2 слота / 24 вар.)</div>
-            <div class="stat-val pos">+89.80%</div>
-            <div style="font-size:13px; color:var(--muted); margin-top:4px;">5 из 5 полугодий в плюс (33 сделки)</div>
-        </div>
-        <div class="card">
-            <div class="stat-label">BTCUSDT (2024–2026, 2 слота / 24 вар.)</div>
-            <div class="stat-val pos">+89.02%</div>
-            <div style="font-size:13px; color:var(--muted); margin-top:4px;">5 из 5 полугодий в плюс (25 сделок)</div>
+            <div class="stat-label">ETHUSDT (2024–2026)</div>
+            <div class="stat-val pos">+146.62%</div>
+            <div style="font-size:13px; color:var(--muted); margin-top:4px;">5 из 5 полугодий в плюс (37 сделок)</div>
         </div>
         <div class="card">
             <div class="stat-label">BTCUSDT Ранние годы (2022–2024)</div>
@@ -34,11 +34,39 @@
         </div>
     </div>
 
-    <div style="margin-bottom: 24px; display:flex; gap:12px; flex-wrap:wrap;">
-        <a href="{{ route('scanner', ['symbol' => 'BTCUSDT']) }}" class="btn">Запустить живой сканер BTCUSDT</a>
-        <a href="{{ route('scanner', ['symbol' => 'ETHUSDT']) }}" class="btn btn-outline">Сканировать ETHUSDT</a>
-        <a href="{{ route('scanner', ['symbol' => 'SOLUSDT']) }}" class="btn btn-outline">Сканировать SOLUSDT</a>
-    </div>
+    @if(!empty($data['portfolio_10coins']['coins']))
+        <div class="card">
+            <h2>Сводная проверка стратегии по всем 10 мониторинговым монетам (Walk-Forward 2024-09 .. 2026-10)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Монета</th>
+                        <th>Итог теста</th>
+                        <th>Сделок</th>
+                        <th>Плюсовых полугодий</th>
+                        <th>сен 2024</th>
+                        <th>мар 2025</th>
+                        <th>сен 2025</th>
+                        <th>мар 2026</th>
+                        <th>сен 2026</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($data['portfolio_10coins']['coins'] as $c)
+                        <tr>
+                            <td><a href="{{ route('scanner', ['symbol' => $c['symbol']]) }}" style="color:#fff; font-weight:700; text-decoration:none;">{{ $c['symbol'] }}</a></td>
+                            <td class="{{ $c['total_pct'] >= 0 ? 'pos' : 'neg' }}"><strong>{{ $c['total_pct'] >= 0 ? '+' : '' }}{{ number_format($c['total_pct'], 2) }}%</strong></td>
+                            <td>{{ $c['trades'] }}</td>
+                            <td><span class="badge {{ $c['total_pct'] >= 0 ? 'badge-green' : 'badge-amber' }}">{{ $c['pos_halves'] }}</span></td>
+                            @foreach($c['halves'] as $hp)
+                                <td class="{{ $hp > 0 ? 'pos' : ($hp < 0 ? 'neg' : '') }}">{{ $hp > 0 ? '+' : '' }}{{ number_format($hp, 2) }}%</td>
+                            @endforeach
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    @endif
 
     @foreach(($data['benchmarks'] ?? []) as $bench)
         <div class="card">

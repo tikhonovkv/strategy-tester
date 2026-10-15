@@ -6,52 +6,49 @@ use Illuminate\Support\Facades\Http;
 
 class TelegramBotService
 {
+    private function readEnv(string $key, string $default = ''): string
+    {
+        $val = getenv($key);
+        if ($val !== false && trim((string) $val) !== '') {
+            return trim((string) $val);
+        }
+        if (!empty($_SERVER[$key]) && trim((string) $_SERVER[$key]) !== '') {
+            return trim((string) $_SERVER[$key]);
+        }
+        if (!empty($_ENV[$key]) && trim((string) $_ENV[$key]) !== '') {
+            return trim((string) $_ENV[$key]);
+        }
+        $laravelVal = env($key, $default);
+        return trim((string) $laravelVal);
+    }
+
     public function getConfig(): array
     {
-        $settings = $this->loadSettingsFile();
-
-        $token = trim((string) ($settings['telegram_bot_token'] ?? env('TELEGRAM_BOT_TOKEN', '')));
-        $chatId = trim((string) ($settings['telegram_chat_id'] ?? env('TELEGRAM_CHAT_ID', '')));
-        $baseUrl = rtrim(trim((string) ($settings['telegram_base_url'] ?? env('TELEGRAM_BASE_URL', 'https://api.telegram.org'))), '/');
+        $token = $this->readEnv('TELEGRAM_BOT_TOKEN', '');
+        $chatId = $this->readEnv('TELEGRAM_CHAT_ID', '');
+        $baseUrl = rtrim($this->readEnv('TELEGRAM_BASE_URL', 'https://api.telegram.org'), '/');
         if ($baseUrl === '') {
             $baseUrl = 'https://api.telegram.org';
         }
-        $notifyEveryHour = (bool) ($settings['notify_every_hour'] ?? env('TELEGRAM_NOTIFY_EVERY_HOUR', true));
 
-        $symbolsRaw = (string) ($settings['symbols'] ?? env('SCAN_SYMBOLS', 'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,LINKUSDT,SUIUSDT'));
+        $notifyRaw = strtolower($this->readEnv('TELEGRAM_NOTIFY_EVERY_HOUR', 'true'));
+        $notifyEveryHour = !in_array($notifyRaw, ['0', 'false', 'no', 'off'], true);
+
+        $symbolsRaw = $this->readEnv(
+            'SCAN_SYMBOLS',
+            'BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,LINKUSDT,SUIUSDT'
+        );
         $symbols = array_values(array_filter(array_map('trim', explode(',', strtoupper($symbolsRaw)))));
 
         return [
             'configured' => ($token !== '' && $chatId !== ''),
             'token' => $token,
-            'token_masked' => $token !== '' ? (substr($token, 0, 4) . '...' . substr($token, -4)) : 'не задан',
+            'token_masked' => $token !== '' ? (substr($token, 0, 4) . '...' . substr($token, -4)) : 'не задан (TELEGRAM_BOT_TOKEN)',
             'chat_id' => $chatId,
             'base_url' => $baseUrl,
             'notify_every_hour' => $notifyEveryHour,
             'symbols' => $symbols,
         ];
-    }
-
-    public function saveSettings(array $input): void
-    {
-        $current = $this->loadSettingsFile();
-
-        if (!empty($input['telegram_bot_token']) && !str_contains($input['telegram_bot_token'], '...')) {
-            $current['telegram_bot_token'] = trim((string) $input['telegram_bot_token']);
-        }
-        if (isset($input['telegram_chat_id']) && trim((string) $input['telegram_chat_id']) !== '') {
-            $current['telegram_chat_id'] = trim((string) $input['telegram_chat_id']);
-        }
-        if (isset($input['telegram_base_url']) && trim((string) $input['telegram_base_url']) !== '') {
-            $current['telegram_base_url'] = rtrim(trim((string) $input['telegram_base_url']), '/');
-        }
-        if (isset($input['symbols']) && trim((string) $input['symbols']) !== '') {
-            $current['symbols'] = strtoupper(trim((string) $input['symbols']));
-        }
-        $current['notify_every_hour'] = !empty($input['notify_every_hour']);
-
-        $path = storage_path('app/autonomous_settings.json');
-        file_put_contents($path, json_encode($current, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     }
 
     public function sendHtml(string $htmlText): array
@@ -60,7 +57,7 @@ class TelegramBotService
         if (!$cfg['configured']) {
             return [
                 'ok' => false,
-                'error' => 'Не заданы TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID.',
+                'error' => 'Не заданы переменные окружения TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID.',
             ];
         }
 
@@ -89,17 +86,5 @@ class TelegramBotService
                 'error' => 'Ошибка сети Telegram: ' . $e->getMessage(),
             ];
         }
-    }
-
-    private function loadSettingsFile(): array
-    {
-        $path = storage_path('app/autonomous_settings.json');
-        if (file_exists($path)) {
-            $decoded = json_decode((string) file_get_contents($path), true);
-            if (is_array($decoded)) {
-                return $decoded;
-            }
-        }
-        return [];
     }
 }

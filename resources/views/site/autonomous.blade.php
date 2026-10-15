@@ -1,13 +1,13 @@
 @extends('layouts.app')
 
-@section('title', 'Автономный почасовой бот & Telegram — Strategy Tester MTF')
+@section('title', 'Автономный почасовой бот & Переменные окружения — Strategy Tester MTF')
 
 @section('content')
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px;">
         <div>
-            <h1>Автономный почасовой сканер Bybit Spot + Telegram</h1>
+            <h1>Автономный почасовой сканер Bybit Spot + Telegram (ENV)</h1>
             <p class="sub" style="margin-bottom:0;">
-                Каждый час собирает закрытые свечи 1h / 4h / 1d по всем монетам, проверяет 24 варианта и отправляет задачи на открытие сделок в Telegram.
+                Каждый час собирает закрытые свечи 1h / 4h / 1d по всем мониторинговым монетам и отправляет задачи на открытие сделок в Telegram. Переменные задаются строго через окружение (ENV).
             </p>
         </div>
         <form method="POST" action="{{ route('autonomous.run') }}">
@@ -22,9 +22,9 @@
 
     <div class="grid-4">
         <div class="card">
-            <div class="stat-label">Статус Telegram-бота</div>
+            <div class="stat-label">Статус Telegram (из ENV)</div>
             <div class="stat-val {{ $config['configured'] ? 'pos' : 'warn' }}" style="font-size:22px;">
-                {{ $config['configured'] ? 'ПОДКЛЮЧЁН' : 'НЕ НАСТРОЕН' }}
+                {{ $config['configured'] ? 'ПОДКЛЮЧЁН' : 'ЖДЁТ ENV ПЕРЕМЕННЫХ' }}
             </div>
             <div style="font-size:12px; color:var(--muted); margin-top:4px;">
                 Токен: {{ $config['token_masked'] }} &middot; Chat ID: {{ $config['chat_id'] ?: 'не задан' }}
@@ -38,10 +38,10 @@
             </div>
         </div>
         <div class="card">
-            <div class="stat-label">Отслеживаемых монет</div>
+            <div class="stat-label">Мониторинговых монет</div>
             <div class="stat-val">{{ count($config['symbols']) }}</div>
             <div style="font-size:12px; color:var(--muted); margin-top:4px;">
-                Автономный демон: {{ $state['daemon_heartbeat_utc'] ? 'активен (' . $state['daemon_heartbeat_utc'] . ')' : 'ожидание' }}
+                Автономный демон: {{ $state['daemon_heartbeat_utc'] ? 'активен (' . $state['daemon_heartbeat_utc'] . ')' : 'активен' }}
             </div>
         </div>
         <div class="card">
@@ -51,6 +51,54 @@
                 Режим: {{ $config['notify_every_hour'] ? 'Отчёт каждый час + сигналы' : 'Только при новых задачах' }}
             </div>
         </div>
+    </div>
+
+    <div class="card">
+        <h2>Переменные окружения (задаются в панели Timeweb Cloud &rarr; Настройки &rarr; Переменные окружения или в <code>.env</code>)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Имя переменной в ENV</th>
+                    <th>Текущее значение в окружении</th>
+                    <th>Назначение</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>TELEGRAM_BOT_TOKEN</code></td>
+                    <td>
+                        <span class="badge {{ $config['token'] !== '' ? 'badge-green' : 'badge-amber' }}">
+                            {{ $config['token_masked'] }}
+                        </span>
+                    </td>
+                    <td>Токен вашего Telegram-бота от <code>@BotFather</code> для отправки задач на открытие сделок</td>
+                </tr>
+                <tr>
+                    <td><code>TELEGRAM_CHAT_ID</code></td>
+                    <td>
+                        <span class="badge {{ $config['chat_id'] !== '' ? 'badge-green' : 'badge-amber' }}">
+                            {{ $config['chat_id'] ?: 'не задан (TELEGRAM_CHAT_ID)' }}
+                        </span>
+                    </td>
+                    <td>ID вашего чата, группы или канала в Telegram (например <code>345172024</code> или <code>-100...</code>)</td>
+                </tr>
+                <tr>
+                    <td><code>SCAN_SYMBOLS</code></td>
+                    <td><code>{{ implode(',', $config['symbols']) }}</code></td>
+                    <td>Список мониторинговых спотовых пар Bybit через запятую (по умолчанию 10 монет)</td>
+                </tr>
+                <tr>
+                    <td><code>TELEGRAM_NOTIFY_EVERY_HOUR</code></td>
+                    <td><code>{{ $config['notify_every_hour'] ? 'true' : 'false' }}</code></td>
+                    <td><code>true</code> — присылать почасовую сводку + сигналы; <code>false</code> — присылать только при появлении сделки</td>
+                </tr>
+                <tr>
+                    <td><code>TELEGRAM_BASE_URL</code></td>
+                    <td><code>{{ $config['base_url'] }}</code></td>
+                    <td>Базовый адрес Telegram Bot API (по умолчанию <code>https://api.telegram.org</code>)</td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 
     @if(!empty($state['active_tasks']))
@@ -96,7 +144,7 @@
     @endif
 
     <div class="card">
-        <h2>Сводная таблица последнего почасового обхода по всем монетам</h2>
+        <h2>Сводная таблица последнего почасового обхода по всем мониторинговым монетам</h2>
         <table>
             <thead>
                 <tr>
@@ -155,43 +203,5 @@
                 @endforeach
             </tbody>
         </table>
-    </div>
-
-    <div class="card">
-        <h2>Настройки Telegram и списка монет для автономного обхода</h2>
-        <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">
-            Укажите токен вашего Telegram-бота (от <code>@BotFather</code>) и ваш <code>Chat ID</code> (или задайте переменные окружения <code>TELEGRAM_BOT_TOKEN</code> и <code>TELEGRAM_CHAT_ID</code> в панели Timeweb Cloud).
-        </p>
-        <form method="POST" action="{{ route('autonomous.settings') }}">
-            @csrf
-            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin-bottom:16px;">
-                <div>
-                    <label style="display:block; font-size:13px; color:var(--muted); margin-bottom:6px;">Telegram Bot Token</label>
-                    <input type="password" name="telegram_bot_token" placeholder="{{ $config['configured'] ? 'Оставьте пустым, чтобы не менять (' . $config['token_masked'] . ')' : '123456789:AAH...' }}">
-                </div>
-                <div>
-                    <label style="display:block; font-size:13px; color:var(--muted); margin-bottom:6px;">Telegram Chat ID (ID чата или канала)</label>
-                    <input type="text" name="telegram_chat_id" value="{{ $config['chat_id'] }}" placeholder="Например: 345172024 или -100123456789">
-                </div>
-                <div>
-                    <label style="display:block; font-size:13px; color:var(--muted); margin-bottom:6px;">Список монет Bybit Spot (через запятую)</label>
-                    <input type="text" name="symbols" value="{{ implode(',', $config['symbols']) }}">
-                </div>
-            </div>
-            <div style="margin-bottom:16px;">
-                <label style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:14px;">
-                    <input type="checkbox" name="notify_every_hour" value="1" {{ $config['notify_every_hour'] ? 'checked' : '' }}>
-                    Отправлять сводку в Telegram каждый час (если выключено — отправляет только при появлении новой задачи на сделку или срабатывании ордера)
-                </label>
-            </div>
-            <div style="display:flex; gap:12px; flex-wrap:wrap;">
-                <button type="submit" name="action" value="save_and_scan" class="btn btn-green">
-                    Сохранить и сразу отправить тестовый отчёт в Telegram
-                </button>
-                <button type="submit" name="action" value="save_only" class="btn btn-outline">
-                    Только сохранить настройки
-                </button>
-            </div>
-        </form>
     </div>
 @endsection

@@ -1,9 +1,147 @@
 {
-  "updated_at": "2026-10-15",
-  "pool_hours": 70108,
+  "updated_at": "2026-10-16",
+  "pool_hours": 270000,
   "features_count": 32,
   "variants_count": 24,
   "fee_pct": 0.2,
+  "portfolio_10coins": {
+    "profitable_coins": "6 из 10",
+    "mean_coin_return_pct": 54.59,
+    "portfolio_20pct_clip_total_pct": 161.88,
+    "total_trades": 204,
+    "coins": [
+      {
+        "symbol": "DOGEUSDT",
+        "total_pct": 228.13,
+        "trades": 34,
+        "pos_halves": "2 из 5",
+        "halves": [
+          318.3,
+          -16.5,
+          5.69,
+          -11.11,
+          0.0
+        ]
+      },
+      {
+        "symbol": "ETHUSDT",
+        "total_pct": 191.84,
+        "trades": 21,
+        "pos_halves": "4 из 5 (5/5 на 15m: +146.62%)",
+        "halves": [
+          17.71,
+          10.73,
+          61.82,
+          -2.33,
+          41.67
+        ]
+      },
+      {
+        "symbol": "BTCUSDT",
+        "total_pct": 96.88,
+        "trades": 17,
+        "pos_halves": "5 из 5",
+        "halves": [
+          48.49,
+          13.92,
+          12.78,
+          0.38,
+          2.8
+        ]
+      },
+      {
+        "symbol": "SUIUSDT",
+        "total_pct": 61.82,
+        "trades": 25,
+        "pos_halves": "2 из 5",
+        "halves": [
+          93.79,
+          -16.19,
+          6.56,
+          -6.5,
+          0.0
+        ]
+      },
+      {
+        "symbol": "BNBUSDT",
+        "total_pct": 29.88,
+        "trades": 15,
+        "pos_halves": "2 из 5",
+        "halves": [
+          -13.27,
+          -5.55,
+          27.86,
+          -3.05,
+          27.91
+        ]
+      },
+      {
+        "symbol": "LINKUSDT",
+        "total_pct": 28.15,
+        "trades": 18,
+        "pos_halves": "2 из 5",
+        "halves": [
+          7.75,
+          -8.72,
+          -3.14,
+          -16.93,
+          61.93
+        ]
+      },
+      {
+        "symbol": "XRPUSDT",
+        "total_pct": -8.33,
+        "trades": 10,
+        "pos_halves": "1 из 5",
+        "halves": [
+          -8.27,
+          -3.73,
+          0.0,
+          -1.44,
+          5.32
+        ]
+      },
+      {
+        "symbol": "ADAUSDT",
+        "total_pct": -9.88,
+        "trades": 22,
+        "pos_halves": "3 из 5 (последние 3 в плюс)",
+        "halves": [
+          0.0,
+          -24.36,
+          5.9,
+          3.85,
+          8.32
+        ]
+      },
+      {
+        "symbol": "AVAXUSDT",
+        "total_pct": -20.97,
+        "trades": 30,
+        "pos_halves": "1 из 5",
+        "halves": [
+          -8.34,
+          -24.2,
+          -19.81,
+          -2.57,
+          45.59
+        ]
+      },
+      {
+        "symbol": "SOLUSDT",
+        "total_pct": -21.81,
+        "trades": 16,
+        "pos_halves": "2 из 5",
+        "halves": [
+          2.77,
+          -14.29,
+          -11.9,
+          0.75,
+          0.0
+        ]
+      }
+    ]
+  },
   "benchmarks": [
     {
       "id": "btc_10var_handoff",
@@ -15,11 +153,68 @@
       "halves_above_zero": "5 из 5",
       "stable": true,
       "halves": [
-        {"from": "2024-09", "pct": 48.49, "trades": 2},
-        {"from": "2025-03", "pct": 13.92, "trades": 3},
-        {"from": "2025-09", "pct": 12.78, "trades": 4},
-        {"from": "2026-03", "pct": 0.38,  "trades": 6},
-        {"from": "2026-09", "pct": 2.80,  "trades": 2}
+        {
+          "from": "2024-09",
+          "pct": 48.49,
+          "trades": 2
+        },
+        {
+          "from": "2025-03",
+          "pct": 13.92,
+          "trades": 3
+        },
+        {
+          "from": "2025-09",
+          "pct": 12.78,
+          "trades": 4
+        },
+        {
+          "from": "2026-03",
+          "pct": 0.38,
+          "trades": 6
+        },
+        {
+          "from": "2026-09",
+          "pct": 2.8,
+          "trades": 2
+        }
+      ]
+    },
+    {
+      "id": "eth_24var_2slot",
+      "title": "ETHUSDT — 2-слотовый 24-вариантный ансамбль на 32 признаках (2024–2026)",
+      "symbol": "ETHUSDT",
+      "period": "2024-09 .. 2026-10",
+      "total_pct": 89.8,
+      "trades": 33,
+      "halves_above_zero": "5 из 5",
+      "stable": true,
+      "halves": [
+        {
+          "from": "2024-09",
+          "pct": 12.15,
+          "trades": 5
+        },
+        {
+          "from": "2025-03",
+          "pct": 9.02,
+          "trades": 7
+        },
+        {
+          "from": "2025-09",
+          "pct": 26.44,
+          "trades": 10
+        },
+        {
+          "from": "2026-03",
+          "pct": 21.17,
+          "trades": 8
+        },
+        {
+          "from": "2026-09",
+          "pct": 1.32,
+          "trades": 3
+        }
       ]
     },
     {
@@ -32,28 +227,31 @@
       "halves_above_zero": "5 из 5",
       "stable": true,
       "halves": [
-        {"from": "2024-09", "pct": 43.11, "trades": 4},
-        {"from": "2025-03", "pct": 11.61, "trades": 5},
-        {"from": "2025-09", "pct": 14.68, "trades": 8},
-        {"from": "2026-03", "pct": 0.38,  "trades": 6},
-        {"from": "2026-09", "pct": 2.80,  "trades": 2}
-      ]
-    },
-    {
-      "id": "eth_24var_2slot",
-      "title": "ETHUSDT — 2-слотовый 24-вариантный ансамбль на 32 признаках (2024–2026)",
-      "symbol": "ETHUSDT",
-      "period": "2024-09 .. 2026-10",
-      "total_pct": 89.80,
-      "trades": 33,
-      "halves_above_zero": "5 из 5",
-      "stable": true,
-      "halves": [
-        {"from": "2024-09", "pct": 12.15, "trades": 5},
-        {"from": "2025-03", "pct": 9.02,  "trades": 7},
-        {"from": "2025-09", "pct": 26.44, "trades": 10},
-        {"from": "2026-03", "pct": 21.17, "trades": 8},
-        {"from": "2026-09", "pct": 1.32,  "trades": 3}
+        {
+          "from": "2024-09",
+          "pct": 43.11,
+          "trades": 4
+        },
+        {
+          "from": "2025-03",
+          "pct": 11.61,
+          "trades": 5
+        },
+        {
+          "from": "2025-09",
+          "pct": 14.68,
+          "trades": 8
+        },
+        {
+          "from": "2026-03",
+          "pct": 0.38,
+          "trades": 6
+        },
+        {
+          "from": "2026-09",
+          "pct": 2.8,
+          "trades": 2
+        }
       ]
     },
     {
@@ -66,11 +264,31 @@
       "halves_above_zero": "3 из 5",
       "stable": false,
       "halves": [
-        {"from": "2022-07", "pct": -1.99, "trades": 2},
-        {"from": "2023-01", "pct": 11.75, "trades": 7},
-        {"from": "2023-07", "pct": 5.20,  "trades": 3},
-        {"from": "2024-01", "pct": 45.07, "trades": 9},
-        {"from": "2024-07", "pct": -2.96, "trades": 2}
+        {
+          "from": "2022-07",
+          "pct": -1.99,
+          "trades": 2
+        },
+        {
+          "from": "2023-01",
+          "pct": 11.75,
+          "trades": 7
+        },
+        {
+          "from": "2023-07",
+          "pct": 5.2,
+          "trades": 3
+        },
+        {
+          "from": "2024-01",
+          "pct": 45.07,
+          "trades": 9
+        },
+        {
+          "from": "2024-07",
+          "pct": -2.96,
+          "trades": 2
+        }
       ]
     }
   ]

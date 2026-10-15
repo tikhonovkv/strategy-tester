@@ -9,7 +9,7 @@ class Kernel extends ConsoleKernel
 {
     protected function schedule(Schedule $schedule)
     {
-        //
+        $schedule->command('scanner:hourly')->hourlyAt(1)->withoutOverlapping();
     }
 
     protected function commands()

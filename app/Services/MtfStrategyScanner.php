@@ -34,7 +34,7 @@ class MtfStrategyScanner
     public function scanBybitSpot(string $symbol = 'BTCUSDT'): array
     {
         $symbol = strtoupper(trim($symbol));
-        if (!in_array($symbol, ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'], true)) {
+        if (!preg_match('/^[A-Z0-9]{2,12}USDT$/', $symbol)) {
             $symbol = 'BTCUSDT';
         }
 
@@ -71,6 +71,7 @@ class MtfStrategyScanner
         $price  = (float) $lastH1['close'];
         $barLow = (float) $lastH1['low'];
         $barHigh = (float) $lastH1['high'];
+        $decimals = $price >= 100 ? 2 : ($price >= 1 ? 4 : 5);
 
         $hRsi14 = $this->rsi($h1Closes, 14);
         $hRsi7  = $this->rsi($h1Closes, 7);
@@ -126,18 +127,18 @@ class MtfStrategyScanner
                     $recommended = [
                         'variant' => 'long_hrlow_sl_2daylow_sma50 (Рукав 1: Точный дневной ретест)',
                         'side' => 'LONG',
-                        'limit_price' => round($barLow, 2),
-                        'stop_price' => round(min($lastDayLow, $prevDayLow), 2),
-                        'target_price' => 'Удержание до закрытия дня < SMA50 (' . round($dSma50, 2) . ')',
+                        'limit_price' => round($barLow, $decimals),
+                        'stop_price' => round(min($lastDayLow, $prevDayLow), $decimals),
+                        'target_price' => 'Удержание до закрытия дня < SMA50 (' . round($dSma50, $decimals) . ')',
                         'cancel_rule' => 'Отменить лимит, если 1h SMA24 уйдёт под SMA72 до касания цены',
                     ];
                 } else {
                     $recommended = [
                         'variant' => 'long_lim_low_sl48_day50 / long_lim_05_sl24_day20_tp8 (Рукав 2: Свинг / Тренд)',
                         'side' => 'LONG',
-                        'limit_price' => round(min($barLow, $price * 0.995), 2),
-                        'stop_price' => round(min($low48, $price * 0.982), 2),
-                        'target_price' => round($price * 1.08, 2) . ' (+8%) или закрытие дня < SMA50 (' . round($dSma50, 2) . ')',
+                        'limit_price' => round(min($barLow, $price * 0.995), $decimals),
+                        'stop_price' => round(min($low48, $price * 0.982), $decimals),
+                        'target_price' => round($price * 1.08, $decimals) . ' (+8%) или закрытие дня < SMA50 (' . round($dSma50, $decimals) . ')',
                         'cancel_rule' => 'Ждать касания лимита до 24 часов при сохранении 1h SMA24 > SMA72',
                     ];
                 }
@@ -155,9 +156,9 @@ class MtfStrategyScanner
                 $recommended = [
                     'variant' => 'short_lim_2pct_day50 / short_lim_high_h4sma18 (Рукав 3: Медвежий отскок)',
                     'side' => 'SHORT (или 100% КЭШ USDT на споте)',
-                    'limit_price' => round(max($barHigh, $price * 1.01), 2),
-                    'stop_price' => round(max($high24, $price * 1.03), 2),
-                    'target_price' => 'Выход по закрытию 4h > 4h SMA18 (' . round($h4Sma18, 2) . ') или 1d > SMA50',
+                    'limit_price' => round(max($barHigh, $price * 1.01), $decimals),
+                    'stop_price' => round(max($high24, $price * 1.03), $decimals),
+                    'target_price' => 'Выход по закрытию 4h > 4h SMA18 (' . round($h4Sma18, $decimals) . ') или 1d > SMA50',
                     'cancel_rule' => 'Отменить лимит через 24 часа, если отскок не достал уровень',
                 ];
             }
@@ -168,18 +169,19 @@ class MtfStrategyScanner
             'symbol' => $symbol,
             'timestamp_utc' => gmdate('Y-m-d H:i:s') . ' UTC',
             'price' => $price,
+            'decimals' => $decimals,
             'regime' => $regime,
             'regime_title' => $regimeTitle,
             'indicators' => [
                 'h1_rsi14' => round($hRsi14, 1),
                 'h1_rsi7' => round($hRsi7, 1),
-                'h1_sma24' => round($hSma24, 2),
-                'h1_sma72' => round($hSma72, 2),
+                'h1_sma24' => round($hSma24, $decimals),
+                'h1_sma72' => round($hSma72, $decimals),
                 'h4_rsi14' => round($h4Rsi14, 1),
-                'h4_sma18' => round($h4Sma18, 2),
+                'h4_sma18' => round($h4Sma18, $decimals),
                 'd1_rsi14' => round($dRsi14, 1),
-                'd1_sma20' => round($dSma20, 2),
-                'd1_sma50' => round($dSma50, 2),
+                'd1_sma20' => round($dSma20, $decimals),
+                'd1_sma50' => round($dSma50, $decimals),
                 'd1_slope5d_pct' => round($slope5d * 100, 2),
                 'd1_dist50_pct' => round($dayDist50 * 100, 2),
                 'd1_dist20_pct' => round($dayDist20 * 100, 2),
@@ -209,7 +211,6 @@ class MtfStrategyScanner
         $list = $data['result']['list'] ?? [];
         $rows = array_reverse($list);
         if (count($rows) > 1) {
-            // Drop the currently forming unclosed bar so only completed bars are used
             array_pop($rows);
         }
 

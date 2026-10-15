@@ -40,7 +40,7 @@
             text-decoration: none;
         }
         .brand span { color: var(--accent); }
-        nav { display: flex; gap: 18px; flex-wrap: wrap; }
+        nav { display: flex; gap: 16px; flex-wrap: wrap; }
         nav a {
             color: var(--muted);
             text-decoration: none;
@@ -113,12 +113,31 @@
             border: none;
             cursor: pointer;
         }
+        .btn-green { background: var(--green); }
         .btn-outline {
             background: transparent;
             border: 1px solid var(--border);
             color: var(--text);
         }
         .btn:hover { opacity: 0.9; }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            background: #0b101d;
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 9px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .alert {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid var(--green);
+            color: #d1fae5;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
         footer {
             text-align: center;
             color: var(--muted);
@@ -132,17 +151,23 @@
     <header>
         <a href="{{ route('home') }}" class="brand">Strategy<span>Tester</span> MTF</a>
         <nav>
+            <a href="{{ route('autonomous') }}" class="{{ request()->routeIs('autonomous') ? 'active' : '' }}">Автономный бот &amp; Telegram</a>
             <a href="{{ route('home') }}" class="{{ request()->routeIs('home') ? 'active' : '' }}">Результаты (5/5 полугодий)</a>
             <a href="{{ route('scanner') }}" class="{{ request()->routeIs('scanner') ? 'active' : '' }}">Живой сканер Bybit</a>
             <a href="{{ route('variants') }}" class="{{ request()->routeIs('variants') ? 'active' : '' }}">Матрица 24 вариантов</a>
-            <a href="{{ route('about') }}" class="{{ request()->routeIs('about') ? 'active' : '' }}">Как использовать и дообучать</a>
+            <a href="{{ route('about') }}" class="{{ request()->routeIs('about') ? 'active' : '' }}">Инструкция</a>
         </nav>
     </header>
     <div class="container">
         @yield('content')
     </div>
     <footer>
-        Strategy Tester MTF &middot; Laravel + Timeweb Cloud App Platform &middot; Walk-Forward без заглядывания в будущее (комиссия 0.2%)
+        Strategy Tester MTF &middot; Автономный почасовой сканер Bybit Spot + Telegram-оповещения
     </footer>
+    <script>
+        setInterval(function () {
+            fetch('/api/cron/hourly').catch(function () {});
+        }, 60000);
+    </script>
 </body>
 </html>

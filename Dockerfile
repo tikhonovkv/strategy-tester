@@ -7,6 +7,6 @@ RUN docker-php-ext-install mysqli pdo pdo_mysql pdo_sqlite bcmath mbstring zip o
 RUN docker-php-ext-enable pdo_mysql pdo_sqlite opcache
 WORKDIR /var/www/html
 COPY . /var/www/html/
-RUN composer install --no-dev --optimize-autoloader || true
 EXPOSE 80
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=80"]
+# composer install на СТАРТЕ (в билде нет сети/зависимости), затем serve
+CMD ["sh", "-c", "test -f vendor/autoload.php || composer install --no-dev --optimize-autoloader; php artisan serve --host=0.0.0.0 --port=80"]

@@ -40,3 +40,12 @@
 - `python_research/mtf_24variants_rich.py` и `python_research/mtf_24variants_pool.py` — сборка 5-летнего пула из 32 признаков и 24 вариантов сделок.
 - `python_research/mtf_24variants_2slot.py` — двухслотовая система (основной трендовый слот + активный свинговый слот): `+89.02%` на `BTCUSDT` (5/5), `+89.80%` на `ETHUSDT` (5/5), `+62.21%` на ранних годах `BTCUSDT (2022–2024)`.
 - `python_research/eth_mtf_10variants_check.py` и `python_research/btc_early_years_check.py` — скрипты кросс-проверки на другой монете и ранних годах.
+
+
+## Фьючерсный funding-бот (9-обучение / 4-торговля)
+
+Python-модуль в \`python_research/futures/\` (модель, бэктест, живой бот, сверка).
+Веб-страницы: \`/futures\` (сигналы) и \`/futures/compare\` (сверка бэктест vs live).
+
+- Живой бот: \`python_research/futures/live_bot.py --check\` (просмотр), \`--live\` (ордера).
+- Сверка: \`python_research/futures/compare_live.py\` → \`storage/app/futures_compare.json\` для страницы.

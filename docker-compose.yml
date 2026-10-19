@@ -1,0 +1,21 @@
+# Timeweb Cloud App Platform — Docker Compose.
+# Порт web задаётся в панели Timeweb (env PORT). Ключи — в env панели Timeweb.
+services:
+  # Laravel-дашборд (Timeweb роутит HTTPS-трафик на ${PORT})
+  web:
+    build: .
+    entrypoint: ["sh", "-c"]
+    command: ["composer install --no-dev --optimize-autoloader && php artisan serve --host=0.0.0.0 --port=80"]
+    ports:
+      - "${PORT:-8080}:80"
+    restart: unless-stopped
+
+  # Фьючерсный funding-бот (фоновый; реальные ордера только при LIVE_MODE=1)
+  futures-bot:
+    build: ./python_research/futures
+    restart: unless-stopped
+    environment:
+      - BYBIT_API_KEY=${BYBIT_API_KEY}
+      - BYBIT_API_SECRET=${BYBIT_API_SECRET}
+      - LIVE_MODE=${LIVE_MODE:-0}
+      - BOOTSTRAP=${BOOTSTRAP:-1}

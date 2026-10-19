@@ -5,6 +5,8 @@ services:
     ports:
       - "${PORT:-8080}:80"
     restart: unless-stopped
+    volumes:
+      - futures-state:/var/www/html/storage/app/futures
 
   futures-bot:
     build: ./python_research/futures
@@ -14,3 +16,9 @@ services:
       - BYBIT_API_SECRET=${BYBIT_API_SECRET}
       - LIVE_MODE=${LIVE_MODE:-0}
       - BOOTSTRAP=${BOOTSTRAP:-1}
+      - OUTPUT_DIR=/app/output
+    volumes:
+      - futures-state:/app/output
+
+volumes:
+  futures-state:

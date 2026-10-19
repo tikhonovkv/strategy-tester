@@ -5,11 +5,12 @@ actually executed a matching fill, and reports MATCHED / MISSED / EXTRA plus a
 fidelity score. Run after the live bot has been trading to confirm it follows
 the model exactly.
 """
-import sys, time, json
+import sys, time, json, os
 from pathlib import Path
 from datetime import datetime, timezone
 
-LAB = Path(r"C:\Users\123\Documents\deepseek-harness\bybit\lab")
+LAB = Path(__file__).resolve().parent
+OUT = Path(os.environ.get("OUTPUT_DIR", str(LAB)))
 COIN_NAMES = {1: "ETH", 2: "SOL", 5: "ADA", 8: "SUI"}   # 9-coin index -> name
 SYMBOLS = {"ETH": "ETHUSDT", "SOL": "SOLUSDT", "ADA": "ADAUSDT", "SUI": "SUIUSDT"}
 
@@ -106,7 +107,7 @@ def render_html(periods):
             ".cols{display:grid;grid-template-columns:1.4fr 1fr;gap:18px}"
             ".matched td{background:#eafaf0}.missed td{background:#fdecea}</style>"
             f"<h1>Сверка: бэктест модели vs живой счёт (4 монеты: ETH/SOL/ADA/SUI)</h1>{rows}")
-    Path(LAB / "compare_report.html").write_text(html, encoding="utf-8")
+    Path(OUT / "compare_report.html").write_text(html, encoding="utf-8")
     # structured JSON for the Laravel page
     jperiods = []
     for label, tag, days in periods:
@@ -124,7 +125,7 @@ def render_html(periods):
                         "status": r["status"], "pnl_pct": r["pnl_pct"]}
                        for r in sorted(res, key=lambda x: x["ts"])],
         })
-    (LAB / "futures_compare.json").write_text(json.dumps({"periods": jperiods}, ensure_ascii=False), encoding="utf-8")
+    (OUT / "futures_compare.json").write_text(json.dumps({"periods": jperiods}, ensure_ascii=False), encoding="utf-8")
     print("saved futures_compare.json")
 
 if __name__ == "__main__":

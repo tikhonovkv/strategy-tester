@@ -9,12 +9,13 @@ Usage:
   python live_bot.py --check            # show current positions + signals, no action
 """
 from __future__ import annotations
-import sys, time, json
+import sys, time, json, os
 from pathlib import Path
 
-from rest import BybitClient
 LAB = Path(__file__).resolve().parent
+OUT = Path(os.environ.get("OUTPUT_DIR", str(LAB)))
 
+from rest import BybitClient
 from futures_dataset import build_rows, load_coin, FEE, HOUR, DAY
 
 TRAIN_COINS = ["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","ADAUSDT","AVAXUSDT","LINKUSDT","SUIUSDT"]
@@ -144,7 +145,7 @@ def main():
     pos = trader.positions()
     free = trader.usdt_free()
     # write JSON for the Laravel dashboard
-    (LAB / "futures_signals.json").write_text(json.dumps({
+    (OUT / "futures_signals.json").write_text(json.dumps({
         "usdt_free": round(free, 2),
         "open_positions": len(pos),
         "signals": [{"symbol": TRADE_SHORT[s["symbol"]], "side": s["side"], "pred_net": round(float(s["pred_net"]), 4), "ts": int(s["ts"])} for s in sigs],

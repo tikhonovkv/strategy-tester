@@ -3,7 +3,7 @@
 use App\Http\Controllers\SiteController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', [SiteController::class, 'index'])->name('home');
+Route::get('/', [FuturesController::class, 'dashboard'])->name('home');
 Route::get('/autonomous', [SiteController::class, 'autonomous'])->name('autonomous');
 Route::post('/autonomous/settings', [SiteController::class, 'saveSettings'])->name('autonomous.settings');
 Route::post('/autonomous/run-now', [SiteController::class, 'runNow'])->name('autonomous.run');

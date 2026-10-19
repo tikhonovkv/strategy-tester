@@ -3,6 +3,6 @@ FROM python:3.12-slim
 RUN pip install --no-cache-dir numpy scikit-learn pillow
 WORKDIR /app
 COPY . /app/
-ENV TZ=UTC PYTHONUNBUFFERED=1
+ENV TZ=UTC PYTHONUNBUFFERED=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 
 CMD ["python", "scheduler.py"]

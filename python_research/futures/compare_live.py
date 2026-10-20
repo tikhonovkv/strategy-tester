@@ -100,7 +100,20 @@ def match(backtest, live, window_h=12):
             results.append({"status": "MISSED", **bt})
         else:
             used[best] = True
-            results.append({"status": "MATCHED", **bt, "live_qty": round(live[best]["qty"], 4), "live_px": live[best]["px"]})
+            lf = live[best]
+            price_diff = abs(lf["px"] - bt["entry_price"]) / bt["entry_price"] * 100 if bt.get("entry_price") else None
+            qty_diff = abs(lf["qty"] - bt["qty"]) / bt["qty"] * 100 if bt.get("qty") else None
+            issues = []
+            if price_diff is not None and price_diff > 0.5:
+                issues.append("PRICE")
+            if qty_diff is not None and qty_diff > 15:
+                issues.append("QTY")
+            quality = "OK" if not issues else "_".join(issues)
+            results.append({"status": "MATCHED", **bt,
+                            "live_qty": round(lf["qty"], 4), "live_px": lf["px"],
+                            "price_diff_pct": round(price_diff, 2) if price_diff is not None else None,
+                            "qty_diff_pct": round(qty_diff, 2) if qty_diff is not None else None,
+                            "quality": quality})
     extras = [lf for li, lf in enumerate(live) if not used[li]]
     return results, extras
 
@@ -112,28 +125,45 @@ def render_html(periods):
         res, extras = match(bt, live)
         matched = sum(1 for r in res if r["status"] == "MATCHED")
         missed = sum(1 for r in res if r["status"] == "MISSED")
+        n_off = sum(1 for r in res if r["status"] == "MATCHED" and r.get("quality") != "OK")
         fid = (matched / len(res) * 100) if res else 0.0
         pnl_sum = sum(r["pnl_pct"] for r in res)
         def px(v):
             return v if v is not None else "-"
+        def rowcls(r):
+            if r['status'] == 'MISSED':
+                return 'missed'
+            q = r.get('quality', 'OK')
+            if q == 'OK':
+                return 'matched'
+            return 'bad' if q == 'PRICE_QTY' else 'warn'
         def qcell(r):
             q = px(r.get('qty'))
             if r['status'] == 'MATCHED' and r.get('live_qty') is not None:
                 return f"{q} / live {r['live_qty']}"
             return q
+        def dcell(r):
+            if r['status'] != 'MATCHED':
+                return "-"
+            parts = []
+            if r.get('price_diff_pct') is not None and r['price_diff_pct'] > 0.5:
+                parts.append("цена " + str(r['price_diff_pct']) + "%")
+            if r.get('qty_diff_pct') is not None and r['qty_diff_pct'] > 15:
+                parts.append("объём " + str(r['qty_diff_pct']) + "%")
+            return " / ".join(parts) if parts else "OK"
         btr = "".join(
-            f"<tr class='{r['status'].lower()}'><td>{iso(r['ts'])}</td><td>{iso(r['exit_ts'])}</td><td>{r['coin']}</td>"
+            f"<tr class='{rowcls(r)}'><td>{iso(r['ts'])}</td><td>{iso(r['exit_ts'])}</td><td>{r['coin']}</td>"
             f"<td>{'LONG' if r['side']==1 else 'SHORT'}</td>"
             f"<td>{px(r['entry_price'])}</td><td>{px(r['exit_price'])}</td>"
             f"<td>{qcell(r)}</td>"
-            f"<td>{r['status']}</td><td>{r['pnl_pct']:+.2f}%</td></tr>"
+            f"<td>{r['status']}</td><td>{dcell(r)}</td><td>{r['pnl_pct']:+.2f}%</td></tr>"
             for r in sorted(res, key=lambda x: x["ts"]))
         ltr = "".join(
             f"<tr><td>{iso(f['ts'])}</td><td>{f['coin']}</td>"
             f"<td>{'LONG' if f['side']==1 else 'SHORT'}</td><td>{f['qty']}</td><td>{f['px']}</td></tr>"
             for f in extras)
         rows += (f"<section><h2>{label}</h2>"
-                 f"<p><b>{len(res)} сигналов модели</b>: ✅ {matched} совпало, ❌ {missed} пропущено, "
+                 f"<p><b>{len(res)} сигналов модели</b>: ✅ {matched} совпало (из них {n_off} с расхождением), ❌ {missed} пропущено, "
                  f"⚠️ {len(extras)} лишних живых исполнений. "
                  f"<b style='color:{'green' if fid>=90 else 'orange' if fid>=50 else 'red'}'>Точность следования {fid:.0f}%</b>. "
                  f"PnL модели за период {pnl_sum:+.2f}%</p>"
@@ -144,7 +174,7 @@ def render_html(periods):
             "h1{font-size:20px}h2{font-size:17px;margin-top:28px}h3{font-size:14px}"
             "table{border-collapse:collapse;font-size:12px;margin:6px 0}td,th{padding:4px 8px;border-bottom:1px solid #ddd;text-align:left}"
             ".cols{display:grid;grid-template-columns:1.4fr 1fr;gap:18px}"
-            ".matched td{background:#eafaf0}.missed td{background:#fdecea}</style>"
+            ".matched td{background:#eafaf0}.missed td{background:#fdecea}.warn td{background:#fdf6e3}.bad td{background:#fde2e2}</style>"
             f"<h1>Сверка: бэктест модели vs живой счёт (4 монеты: ETH/SOL/ADA/SUI)</h1>{rows}")
     Path(OUT / "compare_report.html").write_text(html, encoding="utf-8")
     # structured JSON for the Laravel page
@@ -162,6 +192,7 @@ def render_html(periods):
             "pnl_sum": round(sum(r["pnl_pct"] for r in res), 2),
             "trades": [{"time": iso(r["ts"]), "exit_time": iso(r["exit_ts"]), "coin": r["coin"], "side": r["side"],
                         "entry_price": r["entry_price"], "exit_price": r["exit_price"], "qty": r["qty"],
+                        "quality": r.get("quality", "OK"), "price_diff_pct": r.get("price_diff_pct"), "qty_diff_pct": r.get("qty_diff_pct"),
                         "status": r["status"], "pnl_pct": r["pnl_pct"]}
                        for r in sorted(res, key=lambda x: x["ts"])],
         })

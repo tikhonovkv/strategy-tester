@@ -12,6 +12,8 @@
     .small{font-size:12px;color:#94a3b8}
     h3{font-size:15px;color:#fff;margin:18px 0 6px}
     tr.matched td{background:rgba(16,185,129,0.12)}
+    tr.warn td{background:rgba(245,158,11,0.15)}
+    tr.bad td{background:rgba(239,68,68,0.25)}
     tr.missed td{background:rgba(239,68,68,0.12)}
     table{margin-top:8px}
 </style>
@@ -81,13 +83,25 @@
         <div class="b"><div class="l">PnL модели</div><div class="v">{{ number_format($p['pnl_sum'] ?? 0, 2) }}%</div></div>
       </div>
       <table>
-        <tr><th>Вход</th><th>Выход</th><th>Монета</th><th>Сторона</th><th>Цена вх.</th><th>Цена вых.</th><th>Объём</th><th>Статус</th><th>PnL</th></tr>
+                <tr><th>Вход</th><th>Выход</th><th>Монета</th><th>Сторона</th><th>Цена вх.</th><th>Цена вых.</th><th>Объём</th><th>Статус</th><th>Расхождение</th><th>PnL</th></tr>
         @foreach ($p['trades'] as $t)
-        <tr class="{{ strtolower($t['status'] ?? '') }}">
-          <td>{{ $t['time'] }}</td><td>{{ $t['exit_time'] ?? '—' }}</td><td>{{ $t['coin'] }}</td>
-        <td>{{ ($t['side'] ?? 0) == 1 ? 'LONG' : 'SHORT' }}</td><td>{{ $t['entry_price'] ?? '—' }}</td><td>{{ $t['exit_price'] ?? '—' }}</td><td>{{ $t['qty'] ?? '—' }}</td>
-          <td>{{ ($t['side'] ?? 0) == 1 ? 'LONG' : 'SHORT' }}</td>
-          <td>{{ $t['status'] }}</td><td>{{ number_format($t['pnl_pct'] ?? 0, 2) }}%</td>
+        @php
+            $q = $t['quality'] ?? 'OK';
+            $rowCls = strtolower($t['status'] ?? '');
+            if (($t['status'] ?? '') === 'MATCHED' && $q !== 'OK') { $rowCls .= $q === 'PRICE_QTY' ? ' bad' : ' warn'; }
+            $disc = '';
+            if (($t['status'] ?? '') === 'MATCHED') {
+                $parts = [];
+                if (isset($t['price_diff_pct']) && $t['price_diff_pct'] > 0.5) { $parts[] = 'цена ' . $t['price_diff_pct'] . '%'; }
+                if (isset($t['qty_diff_pct']) && $t['qty_diff_pct'] > 15) { $parts[] = 'объём ' . $t['qty_diff_pct'] . '%'; }
+                $disc = $parts ? implode(' / ', $parts) : 'OK';
+            }
+        @endphp
+        <tr class="{{ $rowCls }}">
+            <td>{{ $t['time'] }}</td><td>{{ $t['exit_time'] ?? '—' }}</td><td>{{ $t['coin'] }}</td>
+            <td>{{ ($t['side'] ?? 0) == 1 ? 'LONG' : 'SHORT' }}</td>
+            <td>{{ $t['entry_price'] ?? '—' }}</td><td>{{ $t['exit_price'] ?? '—' }}</td><td>{{ $t['qty'] ?? '—' }}</td>
+            <td>{{ $t['status'] }}</td><td>{{ $disc ?: '—' }}</td><td>{{ number_format($t['pnl_pct'] ?? 0, 2) }}%</td>
         </tr>
         @endforeach
       </table>

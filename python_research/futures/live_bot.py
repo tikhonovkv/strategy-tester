@@ -42,7 +42,7 @@ def build_train_rows():
                 continue
             net_l = ret - paid - FEE
             net_s = -ret + paid - FEE
-            f22 = np.concatenate([feat[:17], feat[19:]])
+            f22 = np.concatenate([feat[:11], feat[13:]])
             X.append(np.append(f22, 1.0)); y.append(net_l); w.append(1.0)
             X.append(np.append(f22, 0.0)); y.append(net_s); w.append(1.0)
     return np.vstack(X), np.array(y), np.array(w)
@@ -65,7 +65,7 @@ def predict_now():
         if not rows:
             continue
         t, feat, ret, paid, z = rows[-1]
-        f = np.concatenate([feat[:17], feat[19:]])
+        f = np.concatenate([feat[:11], feat[13:]])
         net_l = float(model.predict(np.append(f, 1.0).reshape(1, -1))[0])
         net_s = float(model.predict(np.append(f, 0.0).reshape(1, -1))[0])
         side = 1 if net_l >= net_s else -1

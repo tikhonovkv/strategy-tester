@@ -99,7 +99,7 @@ def build_rows(sym):
         r4 = float(bar_px[bi] / bar_px[bi-4] - 1.0)
         r12 = float(bar_px[bi] / bar_px[bi-12] - 1.0)
         feat = np.array([
-            *f_rate[i-8:i+1],            # 8 funding values
+            *f_rate[i-2:i+1],            # 3 funding values (less short bias)
             z,                            # funding z-score
             float(f_rate[i] - f_rate[i-1]),  # funding delta
             *[px/p - 1.0 for p in past],  # 6 price returns
@@ -122,7 +122,7 @@ def main():
         t0 = time.time()
         rows = build_rows(sym)
         if no_oi:
-            rows = [(a, np.concatenate([b[:17], b[19:]]), c, d, e) for a, b, c, d, e in rows]  # drop OI at 17,18
+            rows = [(a, np.concatenate([b[:11], b[13:]]), c, d, e) for a, b, c, d, e in rows]  # drop OI at 17,18
         total += len(rows)
         out[sym] = [[int(t), [round(float(v), 8) for v in f], round(float(r), 6), round(float(p), 8), round(float(z), 6)]
                     for t, f, r, p, z in rows]

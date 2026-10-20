@@ -1,4 +1,4 @@
-"""One-time seed: fetch ~200 days of hourly bars + 8h funding for the 9 coins
+"""One-time seed: fetch ~550 days of hourly bars + 8h funding for the 9 coins
 into LAB/data/<sym>.json (same format as pairs_cache). Needed for live training."""
 import json, time, urllib.request
 from pathlib import Path
@@ -50,7 +50,7 @@ def fetch_funding(sym, start, end):
     return out
 
 now = int(time.time() * 1000)
-start = now - 200 * 86400000
+start = now - 550 * 86400000  # 550d: 365d backtest + 180d train window
 for sym in COINS:
     bars = fetch_bars(sym, start, now)
     fund = fetch_funding(sym, start, now)

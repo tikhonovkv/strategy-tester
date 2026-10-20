@@ -94,6 +94,13 @@ def fetch_live(days):
 def iso(ms):
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")
 
+def compounded(res):
+    """Compounded return in % from per-trade pnl_pct (each = balance change %)."""
+    c = 1.0
+    for r in res:
+        c *= 1.0 + r["pnl_pct"] / 100.0
+    return (c - 1.0) * 100.0
+
 def match(backtest, live, window_h=12):
     win = window_h * 3600000
     used = [False] * len(live)
@@ -204,6 +211,7 @@ def render_html(periods):
             "verified": matched - sum(1 for r in res if r["status"] == "MATCHED" and r.get("quality") != "OK"),
             "extras": len(extras), "fidelity": fid,
             "pnl_sum": round(sum(r["pnl_pct"] for r in res), 2),
+            "return_pct": round(compounded(res), 2),
             "trades": [{"time": iso(r["ts"]), "exit_time": iso(r["exit_ts"]), "coin": r["coin"], "side": r["side"],
                         "entry_price": r["entry_price"], "exit_price": r["exit_price"], "qty": r["qty"],
                         "path": r.get("path"),

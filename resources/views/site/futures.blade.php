@@ -13,15 +13,15 @@
     foreach ($periods as $p) { $periodMap[$p['label'] ?? ''] = $p; }
     $active = $periodMap['Месяц'] ?? ($periods[0] ?? []);
     $verified = $active['verified'] ?? 0; $totalSig = $active['total'] ?? 0;
-    $fidelity = $active['fidelity'] ?? 0; $pnlPeriod = $active['pnl_sum'] ?? 0;
+    $fidelity = $active['fidelity'] ?? 0; $pnlPeriod = $active['return_pct'] ?? 0;
     // chart data per period
     $chartData = [];
     foreach ($periods as $p) {
-        $labels = []; $pnls = []; $prices = []; $cum = 0;
-        foreach (($p['trades'] ?? []) as $t) {
+        $labels = []; $pnls = []; $prices = []; $cum = 1.0;
+        foreach (array_reverse($p['trades'] ?? []) as $t) {
             $labels[] = $t['time'];
-            $cum += $t['pnl_pct'] ?? 0;
-            $pnls[] = round($cum, 2);
+            $cum *= 1 + ($t['pnl_pct'] ?? 0) / 100;
+            $pnls[] = round(($cum - 1) * 100, 2);
             $prices[] = $t['entry_price'] ?? null;
         }
         $chartData[$p['label'] ?? ''] = ['labels' => $labels, 'pnl' => $pnls, 'prices' => $prices];

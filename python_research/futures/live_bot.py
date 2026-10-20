@@ -12,10 +12,10 @@ from __future__ import annotations
 import sys, time, json, os
 from pathlib import Path
 
+from rest import BybitClient
 LAB = Path(__file__).resolve().parent
 OUT = Path(os.environ.get("OUTPUT_DIR", str(LAB)))
 
-from rest import BybitClient
 from futures_dataset import build_rows, load_coin, FEE, HOUR, DAY
 
 TRAIN_COINS = ["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","ADAUSDT","AVAXUSDT","LINKUSDT","SUIUSDT"]
@@ -42,8 +42,9 @@ def build_train_rows():
                 continue
             net_l = ret - paid - FEE
             net_s = -ret + paid - FEE
-            X.append(np.append(feat[:16], 1.0)); y.append(net_l); w.append(1.0)
-            X.append(np.append(feat[:16], 0.0)); y.append(net_s); w.append(1.0)
+            f22 = np.concatenate([feat[:17], feat[19:]])
+            X.append(np.append(f22, 1.0)); y.append(net_l); w.append(1.0)
+            X.append(np.append(f22, 0.0)); y.append(net_s); w.append(1.0)
     return np.vstack(X), np.array(y), np.array(w)
 
 
@@ -64,7 +65,7 @@ def predict_now():
         if not rows:
             continue
         t, feat, ret, paid, z = rows[-1]
-        f = feat[:16]
+        f = np.concatenate([feat[:17], feat[19:]])
         net_l = float(model.predict(np.append(f, 1.0).reshape(1, -1))[0])
         net_s = float(model.predict(np.append(f, 0.0).reshape(1, -1))[0])
         side = 1 if net_l >= net_s else -1

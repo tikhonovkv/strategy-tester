@@ -21,21 +21,23 @@ COINS = ["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","ADAUSDT","AVAXUSDT",
 
 
 def load_coin(sym):
-    bars, fund = {}, {}
+    bars, vols, fund = {}, {}, {}
     # 1) bootstrap cache (fetched in-container)  2) local state pairs_cache
     for base in (LAB / "data", STATE / "pairs_cache"):
         bp = base / f"{sym}.json"
         if bp.exists():
             blob = json.loads(bp.read_text(encoding="utf-8"))
-            bars.update({int(k): float(v[0]) for k, v in (blob.get("bars") or {}).items()})
+            for k, v in (blob.get("bars") or {}).items():
+                bars[int(k)] = float(v[0]); vols[int(k)] = float(v[1])
             fund.update({int(k): float(v) for k, v in (blob.get("funding") or {}).items()})
     # 3) fresh overlay so the backtest reaches today
     fp = LAB / "fresh" / f"{sym}_fresh.json"
     if fp.exists():
         fr = json.loads(fp.read_text(encoding="utf-8"))
-        bars.update({int(k): float(v[0]) for k, v in fr.get("bars", {}).items()})
+        for k, v in fr.get("bars", {}).items():
+            bars[int(k)] = float(v[0]); vols[int(k)] = float(v[1])
         fund.update({int(k): float(v) for k, v in fr.get("funding", {}).items()})
-    return bars, fund
+    return bars, vols, fund
 
 
 def _load_oi(sym):
@@ -47,15 +49,18 @@ def _load_oi(sym):
 
 
 def build_rows(sym):
-    bars, fund = load_coin(sym)
+    bars, vols, fund = load_coin(sym)
     bar_ts = np.array(sorted(bars), dtype=np.int64)
     bar_px = np.array([bars[int(t)] for t in bar_ts])
+    bar_vol = np.array([vols[int(t)] for t in bar_ts])
     f_ts = np.array(sorted(fund), dtype=np.int64)
     f_rate = np.array([fund[int(t)] for t in f_ts])
     oi_ts, oi = _load_oi(sym)
     def asof(t):
         k = int(np.searchsorted(bar_ts, t, side="right")) - 1
         return float(bar_px[k]) if k >= 0 else np.nan
+    def asof_idx(t):
+        return int(np.searchsorted(bar_ts, t, side="right")) - 1
     def _asof_oi(ts_a, v_a, t):
         if ts_a is None:
             return np.nan
@@ -80,12 +85,26 @@ def build_rows(sym):
         oi_f = [np.nan, np.nan]
         if oi_now > 0 and oi_1d > 0 and oi_7d > 0:
             oi_f = [oi_now / oi_1d - 1.0, oi_now / oi_7d - 1.0]
+        # NEW: price/vol features (close-only) so the model can find non-funding edge
+        bi = asof_idx(t)
+        if bi < 30:
+            continue
+        closes = bar_px[bi-14:bi+1]
+        diff = np.diff(closes)
+        gain = float(np.maximum(diff, 0).mean()); loss = float(np.maximum(-diff, 0).mean())
+        rsi = 100.0 - 100.0 / (1.0 + gain / (loss + 1e-12))
+        logr = np.diff(np.log(bar_px[bi-24:bi+1]))
+        vol24 = float(logr.std()) if len(logr) >= 20 else 0.0
+        r1 = float(bar_px[bi] / bar_px[bi-1] - 1.0)
+        r4 = float(bar_px[bi] / bar_px[bi-4] - 1.0)
+        r12 = float(bar_px[bi] / bar_px[bi-12] - 1.0)
         feat = np.array([
             *f_rate[i-8:i+1],            # 8 funding values
             z,                            # funding z-score
             float(f_rate[i] - f_rate[i-1]),  # funding delta
             *[px/p - 1.0 for p in past],  # 6 price returns
             oi_f[0], oi_f[1],             # 2 open-interest changes
+            rsi, vol24, r1, r4, r12,      # 5 price/vol features
         ], dtype=np.float64)
         ret = px1/px - 1.0
         paid = float(f_rate[i+1] + f_rate[i+2] + f_rate[i+3])
@@ -103,7 +122,7 @@ def main():
         t0 = time.time()
         rows = build_rows(sym)
         if no_oi:
-            rows = [(a, b[:16], c, d, e) for a, b, c, d, e in rows]
+            rows = [(a, np.concatenate([b[:17], b[19:]]), c, d, e) for a, b, c, d, e in rows]  # drop OI at 17,18
         total += len(rows)
         out[sym] = [[int(t), [round(float(v), 8) for v in f], round(float(r), 6), round(float(p), 8), round(float(z), 6)]
                     for t, f, r, p, z in rows]

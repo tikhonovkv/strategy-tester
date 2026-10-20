@@ -26,10 +26,10 @@
             <div class="b"><div class="l">PnL модели</div><div class="v">{{ number_format($p['pnl_sum'] ?? 0, 2) }}%</div></div>
         </div>
         <table>
-            <tr><th>Время</th><th>Монета</th><th>Сторона</th><th>Статус</th><th>PnL</th></tr>
+            <tr><th>Вход</th><th>Выход</th><th>Монета</th><th>Сторона</th><th>Статус</th><th>PnL</th></tr>
             @foreach ($p['trades'] as $t)
             <tr class="{{ strtolower($t['status'] ?? '') }}">
-                <td>{{ $t['time'] }}</td><td>{{ $t['coin'] }}</td>
+                <td>{{ $t['time'] }}</td><td>{{ $t['exit_time'] ?? '—' }}</td><td>{{ $t['coin'] }}</td>
                 <td>{{ ($t['side'] ?? 0) == 1 ? 'LONG' : 'SHORT' }}</td>
                 <td>{{ $t['status'] }}</td><td>{{ number_format($t['pnl_pct'] ?? 0, 2) }}%</td>
             </tr>

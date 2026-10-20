@@ -18,7 +18,7 @@ def load_backtest(tag):
     j = json.loads((LAB / f"stable_{tag}.json").read_text(encoding="utf-8"))
     trades = []
     for t, ci, side, contrib in j["trades"]:
-        trades.append({"ts": int(t), "coin": COIN_NAMES.get(int(ci), "?"), "side": int(side), "pnl_pct": round(float(contrib) * 100, 2)})
+        trades.append({"ts": int(t), "exit_ts": int(t) + 86400000, "coin": COIN_NAMES.get(int(ci), "?"), "side": int(side), "pnl_pct": round(float(contrib) * 100, 2)})
     return trades
 
 def fetch_live(days):
@@ -85,7 +85,7 @@ def render_html(periods):
         fid = (matched / len(res) * 100) if res else 0.0
         pnl_sum = sum(r["pnl_pct"] for r in res)
         btr = "".join(
-            f"<tr class='{r['status'].lower()}'><td>{iso(r['ts'])}</td><td>{r['coin']}</td>"
+            f"<tr class='{r['status'].lower()}'><td>{iso(r['ts'])}</td><td>{iso(r['exit_ts'])}</td><td>{r['coin']}</td>"
             f"<td>{'LONG' if r['side']==1 else 'SHORT'}</td><td>{r['status']}</td>"
             f"<td>{r['pnl_pct']:+.2f}%</td></tr>"
             for r in sorted(res, key=lambda x: x["ts"]))
@@ -98,7 +98,7 @@ def render_html(periods):
                  f"⚠️ {len(extras)} лишних живых исполнений. "
                  f"<b style='color:{'green' if fid>=90 else 'orange' if fid>=50 else 'red'}'>Точность следования {fid:.0f}%</b>. "
                  f"PnL модели за период {pnl_sum:+.2f}%</p>"
-                 f"<div class='cols'><div><h3>Сигналы модели (бэктест)</h3><table><tr><th>Время</th><th>Монета</th><th>Сторона</th><th>Статус</th><th>PnL</th></tr>{btr}</table></div>"
+                 f"<div class='cols'><div><h3>Сигналы модели (бэктест)</h3><table><tr><th>Вход</th><th>Выход</th><th>Монета</th><th>Сторона</th><th>Статус</th><th>PnL</th></tr>{btr}</table></div>"
                  f"<div><h3>Лишние живые сделки</h3><table><tr><th>Время</th><th>Монета</th><th>Сторона</th><th>Кол-во</th><th>Цена</th></tr>{ltr or '<tr><td colspan=5>нет</td></tr>'}</table></div></div></section>")
     html = ("<!doctype html><meta charset='utf-8'><title>Сверка бэктест vs live</title>"
             "<style>body{font-family:Segoe UI,Arial;margin:24px;color:#222;max-width:1200px}"
@@ -121,7 +121,7 @@ def render_html(periods):
             "label": label, "total": len(res), "matched": matched, "missed": missed,
             "extras": len(extras), "fidelity": fid,
             "pnl_sum": round(sum(r["pnl_pct"] for r in res), 2),
-            "trades": [{"time": iso(r["ts"]), "coin": r["coin"], "side": r["side"],
+            "trades": [{"time": iso(r["ts"]), "exit_time": iso(r["exit_ts"]), "coin": r["coin"], "side": r["side"],
                         "status": r["status"], "pnl_pct": r["pnl_pct"]}
                        for r in sorted(res, key=lambda x: x["ts"])],
         })

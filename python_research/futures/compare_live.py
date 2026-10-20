@@ -126,6 +126,7 @@ def render_html(periods):
         matched = sum(1 for r in res if r["status"] == "MATCHED")
         missed = sum(1 for r in res if r["status"] == "MISSED")
         n_off = sum(1 for r in res if r["status"] == "MATCHED" and r.get("quality") != "OK")
+        n_ok = matched - n_off
         fid = (matched / len(res) * 100) if res else 0.0
         pnl_sum = sum(r["pnl_pct"] for r in res)
         def px(v):
@@ -157,13 +158,13 @@ def render_html(periods):
             f"<td>{px(r['entry_price'])}</td><td>{px(r['exit_price'])}</td>"
             f"<td>{qcell(r)}</td>"
             f"<td>{r['status']}</td><td>{dcell(r)}</td><td>{r['pnl_pct']:+.2f}%</td></tr>"
-            for r in sorted(res, key=lambda x: x["ts"]))
+            for r in sorted(res, key=lambda x: x["ts"], reverse=True))
         ltr = "".join(
             f"<tr><td>{iso(f['ts'])}</td><td>{f['coin']}</td>"
             f"<td>{'LONG' if f['side']==1 else 'SHORT'}</td><td>{f['qty']}</td><td>{f['px']}</td></tr>"
             for f in extras)
         rows += (f"<section><h2>{label}</h2>"
-                 f"<p><b>{len(res)} сигналов модели</b>: ✅ {matched} совпало (из них {n_off} с расхождением), ❌ {missed} пропущено, "
+                 f"<p><b>{len(res)} сигналов модели</b>: ✅ {n_ok} совпало точно, ⚠️ {n_off} с расхождением, ❌ {missed} пропущено, "
                  f"⚠️ {len(extras)} лишних живых исполнений. "
                  f"<b style='color:{'green' if fid>=90 else 'orange' if fid>=50 else 'red'}'>Точность следования {fid:.0f}%</b>. "
                  f"PnL модели за период {pnl_sum:+.2f}%</p>"
@@ -188,6 +189,7 @@ def render_html(periods):
         fid = round((matched / len(res) * 100) if res else 0.0, 1)
         jperiods.append({
             "label": label, "total": len(res), "matched": matched, "missed": missed,
+            "verified": matched - sum(1 for r in res if r["status"] == "MATCHED" and r.get("quality") != "OK"),
             "extras": len(extras), "fidelity": fid,
             "pnl_sum": round(sum(r["pnl_pct"] for r in res), 2),
             "trades": [{"time": iso(r["ts"]), "exit_time": iso(r["exit_ts"]), "coin": r["coin"], "side": r["side"],
@@ -196,9 +198,9 @@ def render_html(periods):
                         "status": r["status"], "pnl_pct": r["pnl_pct"]}
                        for r in sorted(res, key=lambda x: x["ts"])],
         })
-    (OUT / "futures_compare.json").write_text(json.dumps({"periods": jperiods}, ensure_ascii=False), encoding="utf-8")
+    (OUT / "futures_compare.json").write_text(json.dumps({"periods": jperiods, "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")}, ensure_ascii=False), encoding="utf-8")
     print("saved futures_compare.json")
 
 if __name__ == "__main__":
-    periods = [("Последние 7 дней", "recent7", 7), ("Последние 30 дней", "recent30", 30)]
+    periods = [("Месяц", "recent30", 30), ("Квартал", "recent90", 90), ("Год", "recent365", 365)]
     render_html(periods)

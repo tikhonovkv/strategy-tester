@@ -31,6 +31,17 @@ def close_at(prices, name, t):
     i = bisect.bisect_right(ts_list, t) - 1
     return round(closes[i], 4) if i >= 0 else None
 
+def path_for(prices, name, entry_ts):
+    """Hourly close path entry-2h .. entry+26h (29 bars); entry at idx 2, exit at idx 26."""
+    if name not in prices:
+        return None
+    ts_list, closes = prices[name]
+    i = bisect.bisect_right(ts_list, entry_ts) - 1
+    lo, hi = i - 2, i + 26
+    if lo < 0 or hi >= len(closes):
+        return None
+    return [round(float(closes[j]), 4) for j in range(lo, hi + 1)]
+
 def load_backtest(tag):
     j = json.loads((LAB / f"stable_{tag}.json").read_text(encoding="utf-8"))
     prices = load_prices()
@@ -45,6 +56,7 @@ def load_backtest(tag):
             "ts": int(t), "exit_ts": int(t) + 86400000, "coin": name, "side": int(side),
             "entry_price": entry_px,
             "exit_price": close_at(prices, name, int(t) + 86400000),
+            "path": path_for(prices, name, int(t)),
             "qty": qty,
             "pnl_pct": round(float(contrib) * 100, 2),
         })
@@ -194,6 +206,7 @@ def render_html(periods):
             "pnl_sum": round(sum(r["pnl_pct"] for r in res), 2),
             "trades": [{"time": iso(r["ts"]), "exit_time": iso(r["exit_ts"]), "coin": r["coin"], "side": r["side"],
                         "entry_price": r["entry_price"], "exit_price": r["exit_price"], "qty": r["qty"],
+                        "path": r.get("path"),
                         "quality": r.get("quality", "OK"), "price_diff_pct": r.get("price_diff_pct"), "qty_diff_pct": r.get("qty_diff_pct"),
                         "status": r["status"], "pnl_pct": r["pnl_pct"]}
                        for r in sorted(res, key=lambda x: x["ts"], reverse=True)],

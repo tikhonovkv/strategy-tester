@@ -26,6 +26,13 @@
         }
         $chartData[$p['label'] ?? ''] = ['labels' => $labels, 'pnl' => $pnls, 'prices' => $prices];
     }
+    $tradePaths = [];
+    foreach ($periods as $p) {
+        foreach ($p['trades'] ?? [] as $t) {
+            $tid = md5(($t['time'] ?? '') . ($t['coin'] ?? '') . ($t['side'] ?? '') . ($t['entry_price'] ?? ''));
+            $tradePaths[$tid] = $t['path'] ?? null;
+        }
+    }
 @endphp
 
 <style>
@@ -150,6 +157,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script>
 var chartData = @json($chartData);
+var tradePaths = @json($tradePaths);
 var CHART = null;
 var currentMode = 'pnl';
 var currentPeriod = 'Месяц';
@@ -192,6 +200,7 @@ function renderMain() {
 }
 
 function renderTrade(tr) {
+  var id = tr.getAttribute('data-id');
   var coin = tr.getAttribute('data-coin');
   var side = tr.getAttribute('data-side') === '1' ? 'LONG' : 'SHORT';
   var entry = parseFloat(tr.getAttribute('data-entry'));
@@ -199,31 +208,67 @@ function renderTrade(tr) {
   var pnl = parseFloat(tr.getAttribute('data-pnl'));
   var t0 = tr.getAttribute('data-time');
   var t1 = tr.getAttribute('data-exittime');
+  var path = tradePaths[id];
   var ctx = document.getElementById('mainChart');
   if (CHART) { CHART.destroy(); }
-  CHART = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: [t0, t1],
-      datasets: [{
-        label: coin + ' ' + side,
-        data: [entry, exit],
-        borderColor: pnl >= 0 ? '#10b981' : '#ef4444',
-        pointBackgroundColor: [entry >= exit ? '#3b82f6' : '#ef4444', '#10b981'],
-        pointRadius: 6,
-        tension: 0,
-        spanGaps: true
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false }, title: { display: true, text: coin + ' ' + side + ' · вход ' + entry + ' → выход ' + exit + ' · PnL ' + pnl + '%', color: '#e2e8f0', font: { size: 12 } } },
-      scales: {
-        x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#222d45' } },
-        y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#222d45' } }
+  if (path && path.length > 2) {
+    var entryIdx = 2;
+    var exitIdx = path.length - 3;
+    var labels = path.map(function(_, i){ return i === entryIdx ? 'ВХОД' : (i === exitIdx ? 'ВЫХОД' : ''); });
+    var radii = path.map(function(_, i){ return (i === entryIdx || i === exitIdx) ? 5 : 0; });
+    var colors = path.map(function(_, i){ return i === entryIdx ? '#3b82f6' : (i === exitIdx ? (pnl >= 0 ? '#10b981' : '#ef4444') : '#94a3b8'); });
+    CHART = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: coin,
+          data: path,
+          borderColor: '#e2e8f0',
+          backgroundColor: 'rgba(59,130,246,0.08)',
+          fill: true,
+          tension: 0.15,
+          pointRadius: radii,
+          pointBackgroundColor: colors,
+          spanGaps: true
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: {
+          legend: { display: false },
+          title: { display: true, text: coin + ' ' + side + ' · вход ' + entry + ' → выход ' + exit + ' · PnL ' + pnl + '% (часовой график)', color: '#e2e8f0', font: { size: 12 } }
+        },
+        scales: {
+          x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#222d45' } },
+          y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#222d45' } }
+        }
       }
-    }
-  });
+    });
+  } else {
+    CHART = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [t0, t1],
+        datasets: [{
+          label: coin + ' ' + side,
+          data: [entry, exit],
+          borderColor: pnl >= 0 ? '#10b981' : '#ef4444',
+          pointBackgroundColor: ['#3b82f6', pnl >= 0 ? '#10b981' : '#ef4444'],
+          pointRadius: 6,
+          tension: 0
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false }, title: { display: true, text: coin + ' ' + side + ' · вход ' + entry + ' → выход ' + exit + ' · PnL ' + pnl + '%', color: '#e2e8f0', font: { size: 12 } } },
+        scales: {
+          x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#222d45' } },
+          y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#222d45' } }
+        }
+      }
+    });
+  }
   document.getElementById('chartTitle').textContent = 'Сделка: ' + coin + ' ' + side;
   document.getElementById('btnClose').style.display = '';
   document.getElementById('btnPnl').classList.remove('active');

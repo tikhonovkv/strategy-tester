@@ -196,7 +196,7 @@ def render_html(periods):
                         "entry_price": r["entry_price"], "exit_price": r["exit_price"], "qty": r["qty"],
                         "quality": r.get("quality", "OK"), "price_diff_pct": r.get("price_diff_pct"), "qty_diff_pct": r.get("qty_diff_pct"),
                         "status": r["status"], "pnl_pct": r["pnl_pct"]}
-                       for r in sorted(res, key=lambda x: x["ts"])],
+                       for r in sorted(res, key=lambda x: x["ts"], reverse=True)],
         })
     (OUT / "futures_compare.json").write_text(json.dumps({"periods": jperiods, "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")}, ensure_ascii=False), encoding="utf-8")
     print("saved futures_compare.json")

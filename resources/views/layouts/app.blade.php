@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>@yield('title', 'Strategy Tester MTF — Мультитаймфреймовая платформа')</title>
+    <title>@yield('title', 'Futures Funding — сверка модель → счёт')</title>
     <style>
         :root {
             --bg: #0b0f19;
@@ -149,25 +149,13 @@
 </head>
 <body>
     <header>
-        <a href="{{ route('home') }}" class="brand">Strategy<span>Tester</span> MTF</a>
-        <nav>
-            <a href="{{ route('autonomous') }}" class="{{ request()->routeIs('autonomous') ? 'active' : '' }}">Автономный бот &amp; Telegram</a>
-            <a href="{{ route('home') }}" class="{{ request()->routeIs('home') ? 'active' : '' }}">Результаты (5/5 полугодий)</a>
-            <a href="{{ route('scanner') }}" class="{{ request()->routeIs('scanner') ? 'active' : '' }}">Живой сканер Bybit</a>
-            <a href="{{ route('variants') }}" class="{{ request()->routeIs('variants') ? 'active' : '' }}">Матрица 24 вариантов</a>
-            <a href="{{ route('about') }}" class="{{ request()->routeIs('about') ? 'active' : '' }}">Инструкция</a>
-        </nav>
+        <a href="{{ route('home') }}" class="brand">Futures<span>Funding</span></a>
     </header>
     <div class="container">
         @yield('content')
     </div>
     <footer>
-        Strategy Tester MTF &middot; Автономный почасовой сканер Bybit Spot + Telegram-оповещения
+        Futures Funding Bot &middot; funding + цена, сверка модель → счёт
     </footer>
-    <script>
-        setInterval(function () {
-            fetch('/api/cron/hourly').catch(function () {});
-        }, 60000);
-    </script>
 </body>
 </html>

@@ -41,6 +41,7 @@ def main():
     start_bal = float(args.get("--start", 2000.0))
     tag = args.get("--tag", "f5m")
     recent_days = int(args.get("--recent-days", 0))
+    retrain_step = int(args.get("--retrain-step", 1))
 
     rows = load_rows()
     ts = np.array([r[1] for r in rows], dtype=np.int64)
@@ -58,31 +59,36 @@ def main():
     concurrency = []
     trades = []
     t0 = time.time()
+    last_model = None
+    last_train_d = -10**18
     for k, d in enumerate(starts):
         d_end = d + DAY
         tr_idx = np.flatnonzero((ts >= d - window * DAY) & (ts < d))
         te_idx = np.flatnonzero((ts >= d) & (ts < d_end))
         if len(tr_idx) < 400 or len(te_idx) == 0:
             continue
-        X, y, w = [], [], []
-        by_coin = {}
-        for i in tr_idx:
-            by_coin.setdefault(rows[i][0], []).append(i)
-        for ci, idxs in by_coin.items():
-            idxs = sorted(idxs, key=lambda i: rows[i][1])
-            streak = 0
-            for i in idxs:
-                r = rows[i]
-                net_l = r[3] - r[4] - FEE
-                net_s = -r[3] + r[4] - FEE
-                best = max(net_l, net_s)
-                streak = streak + 1 if best < 0 else 0
-                wt = 1.0 + pk * min(streak, 4) if best < 0 else 1.0
-                for side, net in ((1, net_l), (0, net_s)):
-                    X.append(np.append(r[2], side)); y.append(net); w.append(wt)
-        if len(X) < 800:
-            continue
-        model = fit_gb(np.vstack(X), np.array(y), np.array(w))
+        if last_model is None or d - last_train_d >= retrain_step * DAY:
+            X, y, w = [], [], []
+            by_coin = {}
+            for i in tr_idx:
+                by_coin.setdefault(rows[i][0], []).append(i)
+            for ci, idxs in by_coin.items():
+                idxs = sorted(idxs, key=lambda i: rows[i][1])
+                streak = 0
+                for i in idxs:
+                    r = rows[i]
+                    net_l = r[3] - r[4] - FEE
+                    net_s = -r[3] + r[4] - FEE
+                    best = max(net_l, net_s)
+                    streak = streak + 1 if best < 0 else 0
+                    wt = 1.0 + pk * min(streak, 4) if best < 0 else 1.0
+                    for side, net in ((1, net_l), (0, net_s)):
+                        X.append(np.append(r[2], side)); y.append(net); w.append(wt)
+            if len(X) < 800:
+                continue
+            last_model = fit_gb(np.vstack(X), np.array(y), np.array(w))
+            last_train_d = d
+        model = last_model
         # evaluate every test row; one position per coin (no global single slot)
         cands = []
         for i in te_idx:

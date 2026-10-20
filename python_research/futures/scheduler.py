@@ -12,14 +12,17 @@ FUNDING_MINUTES = [5, 8*60+5, 16*60+5]
 
 def run(args):
     print(f"[{datetime.now(timezone.utc).isoformat()}] RUN {' '.join(args)}", flush=True)
-    subprocess.run([sys.executable, *args], check=False)
+    r = subprocess.run([sys.executable, *args], check=False, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"[ERROR] {' '.join(args)} exit={r.returncode}", flush=True)
+        print((r.stderr or "")[-2500:], flush=True)
 
 def full_cycle():
     run(["bootstrap.py"])                                        # 200d history -> data/
     run(["futures_dataset.py", "--no-oi"])                       # -> futures_dataset.json
     run(["futures_9to4.py", "--recent-days=30", "--leverage=3", "--tag=recent30"])
-    run(["futures_9to4.py", "--recent-days=90", "--leverage=3", "--tag=recent90"])
-    run(["futures_9to4.py", "--recent-days=365", "--leverage=3", "--tag=recent365"])
+    run(["futures_9to4.py", "--recent-days=90", "--leverage=3", "--retrain-step=3", "--tag=recent90"])
+    run(["futures_9to4.py", "--recent-days=365", "--leverage=3", "--retrain-step=3", "--tag=recent365"])
     run(["live_bot.py", MODE])                                   # signals + orders + futures_signals.json
     run(["compare_live.py"])                                     # -> futures_compare.json
 

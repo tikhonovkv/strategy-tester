@@ -189,10 +189,13 @@ function renderMain() {
     options: {
       responsive: true, maintainAspectRatio: false,
       animation: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: function(c){ return (currentMode === 'pnl' ? 'PnL: ' : 'Цена: ') + c.parsed.y + (currentMode === 'pnl' ? '%' : ''); } } }
+      },
       scales: {
         x: { ticks: { color: '#94a3b8', maxTicksLimit: 8, font: { size: 10 } }, grid: { color: '#222d45' } },
-        y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#222d45' } }
+        y: { ticks: { color: '#94a3b8', font: { size: 10 }, callback: function(v){ return currentMode === 'pnl' ? v + '%' : v; } }, grid: { color: '#222d45' } }
       }
     }
   });

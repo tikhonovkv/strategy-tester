@@ -5,7 +5,7 @@ actually executed a matching fill, and reports MATCHED / MISSED / EXTRA plus a
 fidelity score. Run after the live bot has been trading to confirm it follows
 the model exactly.
 """
-import sys, time, json, os
+import sys, time, json, os, bisect
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -14,11 +14,41 @@ OUT = Path(os.environ.get("OUTPUT_DIR", str(LAB)))
 COIN_NAMES = {1: "ETH", 2: "SOL", 5: "ADA", 8: "SUI"}   # 9-coin index -> name
 SYMBOLS = {"ETH": "ETHUSDT", "SOL": "SOLUSDT", "ADA": "ADAUSDT", "SUI": "SUIUSDT"}
 
+from futures_dataset import load_coin
+
+def load_prices():
+    out = {}
+    for name, sym in SYMBOLS.items():
+        bars, vols, fund = load_coin(sym)
+        ts_list = sorted(bars)
+        out[name] = (ts_list, [bars[t] for t in ts_list])
+    return out
+
+def close_at(prices, name, t):
+    if name not in prices:
+        return None
+    ts_list, closes = prices[name]
+    i = bisect.bisect_right(ts_list, t) - 1
+    return round(closes[i], 4) if i >= 0 else None
+
 def load_backtest(tag):
     j = json.loads((LAB / f"stable_{tag}.json").read_text(encoding="utf-8"))
+    prices = load_prices()
+    stake = float(j.get("stake", 0.2)); lev = float(j.get("leverage", 3.0))
+    balance = float(j.get("start", 2000.0))
     trades = []
     for t, ci, side, contrib in j["trades"]:
-        trades.append({"ts": int(t), "exit_ts": int(t) + 86400000, "coin": COIN_NAMES.get(int(ci), "?"), "side": int(side), "pnl_pct": round(float(contrib) * 100, 2)})
+        name = COIN_NAMES.get(int(ci), "?")
+        entry_px = close_at(prices, name, int(t))
+        qty = round(stake * lev * balance / entry_px, 4) if entry_px else None
+        trades.append({
+            "ts": int(t), "exit_ts": int(t) + 86400000, "coin": name, "side": int(side),
+            "entry_price": entry_px,
+            "exit_price": close_at(prices, name, int(t) + 86400000),
+            "qty": qty,
+            "pnl_pct": round(float(contrib) * 100, 2),
+        })
+        balance *= 1.0 + float(contrib)
     return trades
 
 def fetch_live(days):
@@ -84,10 +114,19 @@ def render_html(periods):
         missed = sum(1 for r in res if r["status"] == "MISSED")
         fid = (matched / len(res) * 100) if res else 0.0
         pnl_sum = sum(r["pnl_pct"] for r in res)
+        def px(v):
+            return v if v is not None else "-"
+        def qcell(r):
+            q = px(r.get('qty'))
+            if r['status'] == 'MATCHED' and r.get('live_qty') is not None:
+                return f"{q} / live {r['live_qty']}"
+            return q
         btr = "".join(
             f"<tr class='{r['status'].lower()}'><td>{iso(r['ts'])}</td><td>{iso(r['exit_ts'])}</td><td>{r['coin']}</td>"
-            f"<td>{'LONG' if r['side']==1 else 'SHORT'}</td><td>{r['status']}</td>"
-            f"<td>{r['pnl_pct']:+.2f}%</td></tr>"
+            f"<td>{'LONG' if r['side']==1 else 'SHORT'}</td>"
+            f"<td>{px(r['entry_price'])}</td><td>{px(r['exit_price'])}</td>"
+            f"<td>{qcell(r)}</td>"
+            f"<td>{r['status']}</td><td>{r['pnl_pct']:+.2f}%</td></tr>"
             for r in sorted(res, key=lambda x: x["ts"]))
         ltr = "".join(
             f"<tr><td>{iso(f['ts'])}</td><td>{f['coin']}</td>"
@@ -98,7 +137,7 @@ def render_html(periods):
                  f"⚠️ {len(extras)} лишних живых исполнений. "
                  f"<b style='color:{'green' if fid>=90 else 'orange' if fid>=50 else 'red'}'>Точность следования {fid:.0f}%</b>. "
                  f"PnL модели за период {pnl_sum:+.2f}%</p>"
-                 f"<div class='cols'><div><h3>Сигналы модели (бэктест)</h3><table><tr><th>Вход</th><th>Выход</th><th>Монета</th><th>Сторона</th><th>Статус</th><th>PnL</th></tr>{btr}</table></div>"
+                 f"<div class='cols'><div><h3>Сигналы модели (бэктест)</h3><table><tr><th>Вход</th><th>Выход</th><th>Монета</th><th>Сторона</th><th>Цена вх.</th><th>Цена вых.</th><th>Объём</th><th>Статус</th><th>PnL</th></tr>{btr}</table></div>"
                  f"<div><h3>Лишние живые сделки</h3><table><tr><th>Время</th><th>Монета</th><th>Сторона</th><th>Кол-во</th><th>Цена</th></tr>{ltr or '<tr><td colspan=5>нет</td></tr>'}</table></div></div></section>")
     html = ("<!doctype html><meta charset='utf-8'><title>Сверка бэктест vs live</title>"
             "<style>body{font-family:Segoe UI,Arial;margin:24px;color:#222;max-width:1200px}"
@@ -122,6 +161,7 @@ def render_html(periods):
             "extras": len(extras), "fidelity": fid,
             "pnl_sum": round(sum(r["pnl_pct"] for r in res), 2),
             "trades": [{"time": iso(r["ts"]), "exit_time": iso(r["exit_ts"]), "coin": r["coin"], "side": r["side"],
+                        "entry_price": r["entry_price"], "exit_price": r["exit_price"], "qty": r["qty"],
                         "status": r["status"], "pnl_pct": r["pnl_pct"]}
                        for r in sorted(res, key=lambda x: x["ts"])],
         })

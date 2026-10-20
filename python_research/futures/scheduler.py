@@ -21,8 +21,8 @@ def full_cycle():
     run(["bootstrap.py"])                                        # 200d history -> data/
     run(["futures_dataset.py", "--no-oi"])                       # -> futures_dataset.json
     run(["futures_9to4.py", "--recent-days=30", "--leverage=3", "--tag=recent30"])
-    run(["futures_9to4.py", "--recent-days=90", "--leverage=3", "--retrain-step=3", "--tag=recent90"])
-    run(["futures_9to4.py", "--recent-days=365", "--leverage=3", "--retrain-step=3", "--tag=recent365"])
+    run(["futures_9to4.py", "--recent-days=90", "--leverage=3", "--tag=recent90"])
+    run(["futures_9to4.py", "--recent-days=365", "--leverage=3", "--tag=recent365"])
     run(["live_bot.py", MODE])                                   # signals + orders + futures_signals.json
     run(["compare_live.py"])                                     # -> futures_compare.json
 

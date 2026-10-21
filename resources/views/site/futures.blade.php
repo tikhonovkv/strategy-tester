@@ -5,6 +5,7 @@
 @section('content')
 @php
     $balance = $signals['usdt_free'] ?? null;
+    $accountFills = $compare['account_fills'] ?? [];
     $positions = $signals['open_positions'] ?? null;
     $btcRegime = $signals['btc_regime'] ?? '—';
     $btcPrice = $signals['btc_price'] ?? null;
@@ -122,12 +123,16 @@
   </div>
 
   <div class="kpis">
-    <div class="kpi"><div class="l">Свободно USDT</div><div class="v">{{ $balance !== null ? '$' . number_format($balance, 2) : '$2,000.00' }}</div></div>
-    <div class="kpi"><div class="l">Режим BTC (10d EMA)</div><div class="v" style="font-size:14px; color:#38bdf8">{{ $btcPrice ? '$' . number_format($btcPrice, 0) . ' · ' : '' }}{{ $btcRegime }}</div></div>
-    <div class="kpi"><div class="l">Побед / Всего</div><div class="v ok"><span id="kpiWins">{{ $winsCount }}</span> / <span id="kpiTotal">{{ $totalSig }}</span> <span class="muted" style="font-size:13px">(<span id="kpiWr">{{ $winRate }}</span>%)</span></div></div>
-    <div class="kpi"><div class="l">Доходность периода</div><div class="v ok" id="kpiPnl">+{{ number_format($pnlPeriod, 2) }}%</div></div>
-    <div class="kpi"><div class="l">Итог с $2,000</div><div class="v" id="kpiFinal">${{ number_format($finalEq, 0) }}</div></div>
-    <div class="kpi"><div class="l">Макс. просадка</div><div class="v warn" id="kpiDd">{{ number_format($ddPeriod, 1) }}%</div></div>
+    <div class="kpi" style="border-color:#10b981"><div class="l">Счёт · свободно USDT</div><div class="v">{{ $balance !== null ? '$' . number_format($balance, 2) : '—' }}</div></div>
+    <div class="kpi" style="border-color:#10b981"><div class="l">Счёт · открыто позиций</div><div class="v">{{ $positions ?? 0 }}</div></div>
+    <div class="kpi" style="border-color:#10b981"><div class="l">Счёт · сделок этой стратегии</div><div class="v">0</div></div>
+    <div class="kpi"><div class="l">Режим BTC</div><div class="v" style="font-size:14px; color:#38bdf8">{{ $btcPrice ? '$' . number_format($btcPrice, 0) . ' · ' : '' }}{{ $btcRegime }}</div></div>
+  </div>
+  <div class="kpis">
+    <div class="kpi" style="border-color:#f59e0b"><div class="l">Бэктест · побед</div><div class="v"><span id="kpiWins">{{ $winsCount }}</span> / <span id="kpiTotal">{{ $totalSig }}</span></div></div>
+    <div class="kpi" style="border-color:#f59e0b"><div class="l">Бэктест · доходность</div><div class="v" id="kpiPnl">{{ $pnlPeriod >= 0 ? '+' : '' }}{{ number_format($pnlPeriod, 2) }}%</div></div>
+    <div class="kpi" style="border-color:#f59e0b"><div class="l">Бэктест · итог с $2,000</div><div class="v" id="kpiFinal">${{ number_format($finalEq, 0) }}</div></div>
+    <div class="kpi" style="border-color:#f59e0b"><div class="l">Бэктест · просадка</div><div class="v warn" id="kpiDd">{{ number_format($ddPeriod, 1) }}%</div></div>
   </div>
 
   <div class="checklist-bar">
@@ -147,7 +152,24 @@
 
   <div class="main">
     <div class="panel" id="tablePanel">
-      <h2>Сверка сделок по стратегии <span class="muted" id="periodLabel" style="text-transform:none;letter-spacing:0">— {{ $active['label'] ?? '' }}</span>
+      <h2 style="color:#10b981">На счёте</h2>
+      <p class="muted" style="margin:0 0 8px">Сделок по этой стратегии на счёте ещё нет. Таблица ниже — расчёт бэктеста, этих сделок на счёте не было.</p>
+      @if (!empty($accountFills))
+        <p class="muted" style="margin:0 0 6px">Другие исполнения счёта за 14 дней (не сигналы Шварца): {{ count($accountFills) }}</p>
+        <table style="margin-bottom:14px">
+          <tr><th>Время</th><th>Пара</th><th>Сторона</th><th>Цена</th><th>Объём</th></tr>
+          @foreach ($accountFills as $f)
+          <tr>
+            <td>{{ $f['time'] }}</td>
+            <td>{{ $f['coin'] }}</td>
+            <td>{{ ($f['side'] ?? 0) == 1 ? 'BUY' : 'SELL' }}</td>
+            <td>{{ $f['px'] }}</td>
+            <td>{{ $f['qty'] }}</td>
+          </tr>
+          @endforeach
+        </table>
+      @endif
+      <h2 style="color:#f59e0b">Бэктест, не счёт <span class="muted" id="periodLabel" style="text-transform:none;letter-spacing:0">— {{ $active['label'] ?? '' }}</span>
         <span><button class="tbtn" id="markAllBtn">Отметить просмотренным</button></span>
       </h2>
       @foreach ($periods as $p)
@@ -166,7 +188,7 @@
             if ($st === 'MATCHED' && $q !== 'OK') { $rowCls = 'warn'; }
             $tid = md5(($t['time'] ?? '') . ($t['coin'] ?? '') . ($t['side'] ?? '') . ($t['entry_price'] ?? ''));
             $rsn = $t['reason'] ?? 'end';
-            $checkTxt = $st === 'MATCHED' ? '✓ LIVE OK' : '✓ ПО СТРАТЕГИИ';
+            $checkTxt = $st === 'MATCHED' ? 'на счёте' : 'только бэктест';
           @endphp
           <tr class="trade-row {{ $rowCls }}" data-id="{{ $tid }}" data-coin="{{ $t['coin'] }}" data-side="{{ $t['side'] }}" data-entry="{{ $t['entry_price'] }}" data-exit="{{ $t['exit_price'] }}" data-time="{{ $t['time'] }}" data-exittime="{{ $t['exit_time'] }}" data-pnl="{{ $pnl }}">
             <td>{{ substr($t['time'], 5) }}</td>
@@ -176,7 +198,7 @@
             <td>{{ $t['entry_price'] ?? '—' }} → {{ $t['exit_price'] ?? '—' }}</td>
             <td>${{ number_format($t['margin'] ?? 0, 0) }} <span class="muted">({{ $t['eff_lev'] ?? 7 }}x)</span></td>
             <td><span class="badge-rule">{{ $rsn }}</span></td>
-            <td class="ok">{{ $checkTxt }}</td>
+            <td class="{{ $st === 'MATCHED' ? 'ok' : 'warn' }}">{{ $checkTxt }}</td>
             <td class="{{ $pnl >= 0 ? 'ok' : 'bad' }}">{{ $pnl >= 0 ? '+' : '' }}{{ number_format($pnl, 2) }}% <span class="muted">(${{ number_format($t['pnl_usd'] ?? 0, 0) }})</span></td>
             <td style="font-weight:700">${{ number_format($t['eq'] ?? 2000, 0) }}</td>
           </tr>

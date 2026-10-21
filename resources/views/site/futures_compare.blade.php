@@ -40,7 +40,7 @@
             <td>{{ $t['entry_price'] ?? '—' }} → {{ $t['exit_price'] ?? '—' }}</td>
             <td>${{ number_format($t['margin'] ?? 0, 0) }} ({{ $t['eff_lev'] ?? 7 }}x)</td>
             <td>{{ $t['reason'] ?? 'end' }}</td>
-            <td>{{ ($t['status'] ?? '') === 'MATCHED' ? '✓ LIVE OK' : '✓ ПО СТРАТЕГИИ' }}</td>
+            <td>{{ ($t['status'] ?? '') === 'MATCHED' ? 'на счёте' : 'только бэктест' }}</td>
             <td><b>{{ $pnl >= 0 ? '+' : '' }}{{ number_format($pnl, 2) }}%</b> (${{ number_format($t['pnl_usd'] ?? 0, 0) }})</td>
             <td><b>${{ number_format($t['eq'] ?? 2000, 0) }}</b></td>
         </tr>

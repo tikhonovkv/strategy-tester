@@ -92,6 +92,7 @@ def load_backtest(tag: str):
                 "eq": tr.get("eq", 2000.0),
                 "reason": tr.get("reason", "end"),
                 "pyr": bool(tr.get("pyr", False)),
+                "pyr_entry_px": tr.get("pyr_entry_px"),
             })
         return trades, j
 
@@ -197,7 +198,7 @@ def match(backtest: list[dict], live: list[dict], window_h: int = 12):
                 if best is None or abs(lf["ts"] - bt["ts"]) < abs(live[best]["ts"] - bt["ts"]):
                     best = li
         if best is None:
-            results.append({"status": "MISSED", "quality": "STRATEGY_OK", **bt})
+            results.append({"status": "BACKTEST", "quality": "NOT_ON_ACCOUNT", **bt})
         else:
             used[best] = True
             lf = live[best]
@@ -311,6 +312,7 @@ def render_html(periods):
                     "eq": r.get("eq", 2000.0),
                     "reason": r.get("reason", "end"),
                     "pyr": bool(r.get("pyr", False)),
+                    "pyr_entry_px": r.get("pyr_entry_px"),
                     "path": r.get("path"),
                     "quality": r.get("quality", "OK"),
                     "price_diff_pct": r.get("price_diff_pct"),
@@ -337,7 +339,17 @@ def render_html(periods):
             json.dumps(
                 {
                     "periods": jperiods,
-                    "strategy": "Schwartz Pitbull Championship 7x (TP1 3.0 ATR / TP2 5.5 ATR + 65% Runner + Pyramid + Rotation)",
+                    "account_fills": [
+                        {
+                            "time": iso(f["ts"]),
+                            "coin": f["coin"],
+                            "side": f["side"],
+                            "qty": f["qty"],
+                            "px": f["px"],
+                        }
+                        for f in live_all
+                    ],
+                    "strategy": "Schwartz Pitbull Championship 7x",
                     "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                 },
                 ensure_ascii=False,

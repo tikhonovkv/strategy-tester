@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Verification tool: Schwartz Championship backtest trades vs LIVE account trades.
+"""Verification tool: Real Bybit Account PnL + Strategy Matching + Backtest Reference.
 
-For each backtest signal (coin + side + time + exit_time + reason + pyr) it checks
-whether the account actually executed a matching fill (and whether an open live
-position matches a currently active signal), and reports MATCHED / MISSED / EXTRA
-plus a fidelity score and per-trade strategy rule checklist.
+Separates:
+1. REAL ACCOUNT PNL & FILLS:
+   - Pulls closed positions from `/v5/position/closed-pnl` (up to 90 days) to build the
+     REAL account equity & cumulative PnL curve for each period (`Квартал`, `Год`, `Вся история`, `Месяц`).
+   - Pulls recent executions from `/v5/execution/list` and matches them against strategy signals.
+2. STRATEGY BACKTEST REFERENCE:
+   - Exports each period's backtest curve and trade list separately, clearly marked as
+     either `✓ ИСПОЛНЕНО НА СЧЁТЕ` (MATCHED) or `РАСЧЁТ БЭКТЕСТА` (BACKTEST).
 """
 from __future__ import annotations
 
@@ -31,37 +35,8 @@ SYMBOLS = {
 HOUR = 3_600_000
 
 
-def load_prices():
-    out = {}
-    for name, sym in SYMBOLS.items():
-        try:
-            bars, vols, fund = load_coin(sym)
-            ts_list = sorted(bars)
-            out[name] = (ts_list, [bars[t] for t in ts_list])
-        except Exception:
-            pass
-    return out
-
-
-def close_at(prices, name, t):
-    if name not in prices:
-        return None
-    ts_list, closes = prices[name]
-    i = bisect.bisect_right(ts_list, t - HOUR) - 1
-    if i < 0 or ts_list[i] != t - HOUR:
-        return None
-    return round(closes[i], 4)
-
-
-def path_for(prices, name, entry_ts, hold_h=24):
-    if name not in prices:
-        return None
-    ts_list, closes = prices[name]
-    i = bisect.bisect_right(ts_list, entry_ts - HOUR) - 1
-    lo, hi = i - 2, min(len(closes) - 1, i + hold_h + 2)
-    if lo < 0 or hi <= lo:
-        return None
-    return [round(float(closes[j]), 4) for j in range(lo, hi + 1)]
+def iso(ms: int) -> str:
+    return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")
 
 
 def load_backtest(tag: str):
@@ -70,7 +45,6 @@ def load_backtest(tag: str):
         path = LAB / f"stable_{tag}.json"
     j = json.loads(path.read_text(encoding="utf-8"))
 
-    # Use rich_trades from Schwartz Championship if available
     if "rich_trades" in j and j["rich_trades"]:
         trades = []
         for tr in j["rich_trades"]:
@@ -92,75 +66,49 @@ def load_backtest(tag: str):
                 "eq": tr.get("eq", 2000.0),
                 "reason": tr.get("reason", "end"),
                 "pyr": bool(tr.get("pyr", False)),
-                "pyr_entry_px": tr.get("pyr_entry_px"),
             })
         return trades, j
-
-    prices = load_prices()
-    stake = float(j.get("stake", 0.2))
-    lev = float(j.get("leverage", 3.0))
-    balance = float(j.get("start", 2000.0))
-    trades = []
-    for t, ci, side, contrib in j.get("trades", []):
-        name = COIN_NAMES.get(int(ci), "?")
-        entry_px = close_at(prices, name, int(t))
-        qty = round(stake * lev * balance / entry_px, 4) if entry_px else None
-        pnl_usd = round(balance * float(contrib), 2)
-        balance *= 1.0 + float(contrib)
-        trades.append({
-            "ts": int(t),
-            "exit_ts": int(t) + 86400000,
-            "hold_h": 24,
-            "coin": name,
-            "side": int(side),
-            "entry_price": entry_px,
-            "exit_price": close_at(prices, name, int(t) + 86400000),
-            "path": path_for(prices, name, int(t)),
-            "qty": qty,
-            "margin": round(balance * stake, 2),
-            "eff_lev": lev,
-            "raw_net_pct": round(float(contrib) * 100 / max(lev * stake, 1e-6), 2),
-            "pnl_usd": pnl_usd,
-            "pnl_pct": round(float(contrib) * 100, 2),
-            "eq": round(balance, 2),
-            "reason": "24h",
-            "pyr": False,
-        })
-    return trades, j
+    return [], j
 
 
-def fetch_live(days: int = 28):
+def fetch_live_executions_and_closed_pnl():
     from rest import BybitClient
     client = BybitClient()
     try:
         client._require_keys()
     except BaseException:
-        return []
+        return [], [], 2000.0
+
     now = int(time.time() * 1000)
     day = 86400000
+
+    # 1. Current wallet balance
+    wallet_usdt = 2000.0
+    try:
+        d = client.private_get("/v5/account/wallet-balance", {"accountType": "UNIFIED"})
+        for acct in (d.get("result") or {}).get("list") or []:
+            for coin in acct.get("coin") or []:
+                if str(coin.get("coin")) == "USDT":
+                    wallet_usdt = float(coin.get("walletBalance") or 2000.0)
+    except Exception:
+        pass
+
+    # 2. Recent executions (last 14 days, 2 fast calls)
     fills = []
-    # Query at most 2 recent 7-day windows without symbol filter so all pairs come back in 2 fast requests
-    for i in range(min((days + 6) // 7, 2)):
+    for i in range(2):
         end = now - i * 7 * day
         start = end - 7 * day
         try:
             d = client.private_get(
                 "/v5/execution/list",
-                {
-                    "category": "linear",
-                    "limit": "100",
-                    "startTime": str(start),
-                    "endTime": str(end),
-                },
+                {"category": "linear", "limit": "100", "startTime": str(start), "endTime": str(end)},
             )
-            rows = (d.get("result") or {}).get("list") or []
-            for r in rows:
+            for r in (d.get("result") or {}).get("list") or []:
                 sym = str(r.get("symbol") or "")
                 coin = sym.replace("USDT", "")
-                if coin not in SYMBOLS:
-                    continue
                 fills.append({
                     "coin": coin,
+                    "symbol": sym,
                     "side": 1 if str(r.get("side")).lower() == "buy" else -1,
                     "ts": int(r.get("execTime") or 0),
                     "qty": float(r.get("execQty") or 0),
@@ -169,18 +117,76 @@ def fetch_live(days: int = 28):
         except Exception:
             pass
     fills.sort(key=lambda x: x["ts"])
-    return fills
+
+    # 3. Closed PnL history over last 90 days (13 weekly windows, fast)
+    closed_pnl = []
+    seen_ids = set()
+    for i in range(13):
+        end = now - i * 7 * day
+        start = end - 7 * day
+        try:
+            d = client.private_get(
+                "/v5/position/closed-pnl",
+                {"category": "linear", "limit": "100", "startTime": str(start), "endTime": str(end)},
+            )
+            for r in (d.get("result") or {}).get("list") or []:
+                oid = str(r.get("orderId") or "")
+                if oid in seen_ids:
+                    continue
+                seen_ids.add(oid)
+                ut = int(r.get("updatedTime") or r.get("createdTime") or 0)
+                ct = int(r.get("createdTime") or ut)
+                sym = str(r.get("symbol") or "")
+                # Note: in Bybit closed-pnl, side='Sell' means the closing order was Sell (i.e. LONG position closed)
+                close_side = str(r.get("side") or "")
+                pos_side = 1 if close_side.lower() == "sell" else -1
+                closed_pnl.append({
+                    "order_id": oid,
+                    "symbol": sym,
+                    "coin": sym.replace("USDT", ""),
+                    "side": pos_side,
+                    "created_ts": ct,
+                    "closed_ts": ut,
+                    "time": iso(ct),
+                    "exit_time": iso(ut),
+                    "qty": float(r.get("closedSize") or r.get("qty") or 0),
+                    "entry_price": float(r.get("avgEntryPrice") or 0),
+                    "exit_price": float(r.get("avgExitPrice") or 0),
+                    "leverage": float(r.get("leverage") or 1),
+                    "pnl_usd": round(float(r.get("closedPnl") or 0), 2),
+                })
+        except Exception:
+            pass
+    closed_pnl.sort(key=lambda x: x["closed_ts"])
+    return fills, closed_pnl, round(wallet_usdt, 2)
 
 
-def iso(ms: int) -> str:
-    return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")
+def build_real_equity_curve(closed_pnl: list[dict], wallet_now: float, cut_ts: int):
+    """Reconstruct actual account balance & PnL % curve inside the period [cut_ts, now]."""
+    now_ms = int(time.time() * 1000)
+    in_period = [c for c in closed_pnl if c["closed_ts"] >= cut_ts]
+    total_pnl_period = sum(c["pnl_usd"] for c in in_period)
+    start_bal = max(100.0, wallet_now - total_pnl_period)
 
-
-def compounded(res: list[dict]) -> float:
-    c = 1.0
-    for r in res:
-        c *= 1.0 + r["pnl_pct"] / 100.0
-    return (c - 1.0) * 100.0
+    pts = [[iso(max(cut_ts, now_ms - 90 * 86400000 if cut_ts == 0 else cut_ts)), 0.0, round(start_bal, 2)]]
+    running_bal = start_bal
+    for c in in_period:
+        running_bal += c["pnl_usd"]
+        pct = round((running_bal / start_bal - 1.0) * 100.0, 2)
+        c["pnl_pct"] = round((c["pnl_usd"] / start_bal) * 100.0, 2)
+        c["eq_after"] = round(running_bal, 2)
+        pts.append([c["exit_time"], pct, round(running_bal, 2)])
+    pts.append([iso(now_ms), round((running_bal / start_bal - 1.0) * 100.0, 2), round(running_bal, 2)])
+    return {
+        "start_balance": round(start_bal, 2),
+        "end_balance": round(running_bal, 2),
+        "pnl_usd": round(total_pnl_period, 2),
+        "return_pct": round((running_bal / start_bal - 1.0) * 100.0, 2),
+        "trades_count": len(in_period),
+        "wins_count": sum(1 for c in in_period if c["pnl_usd"] > 0),
+        "curve": pts,
+        "closed_trades": list(reversed(in_period)),
+    }
 
 
 def match(backtest: list[dict], live: list[dict], window_h: int = 12):
@@ -232,53 +238,26 @@ def match(backtest: list[dict], live: list[dict], window_h: int = 12):
 
 
 def render_html(periods):
-    rows = ""
+    now_ms = int(time.time() * 1000)
+    day = 86400000
+    live_fills, closed_pnl, wallet_now = fetch_live_executions_and_closed_pnl()
+
     jperiods = []
-    live_all = fetch_live(14)
     for label, tag, days in periods:
         bt, raw_j = load_backtest(tag)
-        live = live_all
-        res, extras = match(bt, live)
+        res, extras = match(bt, live_fills)
         matched = sum(1 for r in res if r["status"] == "MATCHED")
-        missed = sum(1 for r in res if r["status"] == "MISSED")
+        missed = sum(1 for r in res if r["status"] != "MATCHED")
         n_off = sum(1 for r in res if r["status"] == "MATCHED" and r.get("quality") != "OK")
         n_ok = matched - n_off
         wins = sum(1 for r in res if r.get("pnl_pct", 0) > 0)
         wr = round(wins / max(1, len(res)) * 100.0, 1)
-        fid = round((matched / len(res) * 100) if res else 100.0, 1)
-        ret_pct = round(float(raw_j.get("return_pct", compounded(res))), 2)
+        ret_pct = round(float(raw_j.get("return_pct", 0.0)), 2)
         dd_pct = round(float(raw_j.get("max_dd_pct", 0.0)), 1)
         final_eq = round(float(raw_j.get("final", 2000.0)), 2)
 
-        def px(v):
-            return v if v is not None else "-"
-
-        def rowcls(r):
-            if r["status"] == "MATCHED":
-                q = r.get("quality", "OK")
-                return "matched" if q == "OK" else ("bad" if q == "PRICE_QTY" else "warn")
-            return "matched" if r.get("pnl_pct", 0) > 0 else "missed"
-
-        btr = "".join(
-            f"<tr class='{rowcls(r)}'>"
-            f"<td>{iso(r['ts'])}</td><td>{iso(r['exit_ts'])} ({r.get('hold_h', 24)}h)</td>"
-            f"<td><b>{r['coin']}</b> {'+PYR' if r.get('pyr') else ''}</td>"
-            f"<td>{'LONG' if r['side']==1 else 'SHORT'}</td>"
-            f"<td>{px(r['entry_price'])}</td><td>{px(r['exit_price'])}</td>"
-            f"<td>${px(r.get('margin'))} ({px(r.get('eff_lev'))}x)</td>"
-            f"<td>{r.get('reason', 'end')}</td>"
-            f"<td>{r['status']}</td>"
-            f"<td><b>{r['pnl_pct']:+.2f}%</b> (${r.get('pnl_usd', 0):+.2f})</td>"
-            f"<td>${r.get('eq', 2000):,.2f}</td></tr>"
-            for r in sorted(res, key=lambda x: x["ts"], reverse=True)
-        )
-        rows += (
-            f"<section><h2>{label}: +{ret_pct:.2f}% ($2,000 -> ${final_eq:,.2f}, DD {dd_pct:.1f}%, WR {wr:.1f}%)</h2>"
-            f"<p><b>{len(res)} сделок по стратегии Шварца</b> (побед: {wins}/{len(res)} = {wr:.1f}%): "
-            f"исполнено на счёте {matched} (точно {n_ok}), ожидают/история {missed}, лишних сделок {len(extras)}.</p>"
-            f"<table><tr><th>Вход</th><th>Выход</th><th>Монета</th><th>Сторона</th><th>Цена вх.</th><th>Цена вых.</th>"
-            f"<th>Маржа</th><th>Правило выхода</th><th>Счёт</th><th>PnL</th><th>Баланс</th></tr>{btr}</table></section>"
-        )
+        cut_ts = 0 if days >= 1000 else now_ms - days * day
+        real_acct = build_real_equity_curve(closed_pnl, wallet_now, cut_ts)
 
         jperiods.append({
             "label": label,
@@ -289,12 +268,13 @@ def render_html(periods):
             "missed": missed,
             "verified": n_ok,
             "extras": len(extras),
-            "fidelity": fid,
+            "fidelity": round((matched / len(res) * 100) if res else 0.0, 1),
             "pnl_sum": round(sum(r["pnl_pct"] for r in res), 2),
             "return_pct": ret_pct,
             "max_dd_pct": dd_pct,
             "final_eq": final_eq,
             "equity": raw_j.get("equity_pct") or [],
+            "real_account": real_acct,
             "trades": [
                 {
                     "time": iso(r["ts"]),
@@ -312,7 +292,6 @@ def render_html(periods):
                     "eq": r.get("eq", 2000.0),
                     "reason": r.get("reason", "end"),
                     "pyr": bool(r.get("pyr", False)),
-                    "pyr_entry_px": r.get("pyr_entry_px"),
                     "path": r.get("path"),
                     "quality": r.get("quality", "OK"),
                     "price_diff_pct": r.get("price_diff_pct"),
@@ -324,39 +303,18 @@ def render_html(periods):
             ],
         })
 
-    html = (
-        "<!doctype html><meta charset='utf-8'><title>Сверка Чемпионата Шварца vs Live</title>"
-        "<style>body{font-family:Segoe UI,Arial;margin:24px;color:#222;max-width:1320px}"
-        "h1{font-size:20px}h2{font-size:17px;margin-top:28px}"
-        "table{border-collapse:collapse;font-size:12px;margin:6px 0;width:100%}"
-        "td,th{padding:4px 8px;border-bottom:1px solid #ddd;text-align:left}"
-        ".matched td{background:#eafaf0}.missed td{background:#fdecea}.warn td{background:#fdf6e3}.bad td{background:#fde2e2}</style>"
-        f"<h1>Сверка Чемпионата Шварца (Ultra 7x: Каскадный Тейк 3.0/5.5 ATR + Пирамида + Ротация)</h1>{rows}"
-    )
+    payload = {
+        "periods": jperiods,
+        "wallet_usdt": wallet_now,
+        "cron_schedule": "Каждые 5 минут — сверка счёта Bybit и контроль открытых позиций; каждый час (:02) — докачка свечей и вход по новым сигналам",
+        "strategy": "Schwartz Pitbull Championship 7x",
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+    }
     for target_dir in {LAB, OUT}:
-        (target_dir / "compare_report.html").write_text(html, encoding="utf-8")
         (target_dir / "futures_compare.json").write_text(
-            json.dumps(
-                {
-                    "periods": jperiods,
-                    "account_fills": [
-                        {
-                            "time": iso(f["ts"]),
-                            "coin": f["coin"],
-                            "side": f["side"],
-                            "qty": f["qty"],
-                            "px": f["px"],
-                        }
-                        for f in live_all
-                    ],
-                    "strategy": "Schwartz Pitbull Championship 7x",
-                    "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                },
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
         )
-    print("saved futures_compare.json and compare_report.html", flush=True)
+    print("saved futures_compare.json with real_account PnL and backtest curves", flush=True)
 
 
 if __name__ == "__main__":

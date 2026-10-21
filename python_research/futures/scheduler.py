@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Docker entrypoint: run the Schwartz Pitbull Championship 7x pipeline every hour (+2 min).
+"""Docker entrypoint: Continuous 5-minute Live Account Verification + Hourly Bar Refresh.
 
-On startup:
-  1. Immediately exports precomputed backtest & live verification files (<5s) so the
-     web dashboard is populated right away.
-  2. Refreshes Bybit hourly bars & funding (`bootstrap.py`), re-exports windows, runs
-     `live_bot.py` and `compare_live.py`.
-Every hour at :02 UTC:
-  Refreshes bars, checks open positions for fast_bail / TP1 / TP2 / 10d EMA exit,
-  opens new signals, and updates `futures_compare.json` + `futures_signals.json`.
+Schedule:
+  - On startup: immediately seeds JSONs, refreshes Bybit candles (`bootstrap.py`), runs
+    `live_bot.py` and `compare_live.py`.
+  - Every 5 minutes: runs `live_bot.py` (checks open positions for fast_bail / stops / TP
+    and updates live account status) and `compare_live.py` (refreshes real Bybit closed PnL
+    and trade verification).
+  - Every hour at :02 UTC: runs `bootstrap.py` + `schwartz_production.py` to pull the newly
+    closed hourly candle and evaluate new entry signals.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 MODE = "--live" if os.environ.get("LIVE_MODE") == "1" else "--dry-run"
 
@@ -32,35 +32,32 @@ def run(args: list[str]) -> None:
 
 
 def fast_startup_seed() -> None:
-    """Populate output JSONs immediately on container boot using bundled data."""
     run(["schwartz_production.py"])
     run(["live_bot.py", MODE])
     run(["compare_live.py"])
 
 
-def full_cycle() -> None:
+def hourly_bar_refresh() -> None:
     if os.environ.get("BOOTSTRAP", "1") != "0":
         run(["bootstrap.py"])
         run(["futures_dataset.py", "--no-oi"])
     run(["schwartz_production.py"])
+
+
+def five_minute_verification() -> None:
     run(["live_bot.py", MODE])
     run(["compare_live.py"])
 
 
-def next_hourly_target() -> datetime:
-    now = datetime.now(timezone.utc)
-    target = now.replace(minute=2, second=0, microsecond=0)
-    if target <= now:
-        target += timedelta(hours=1)
-    return target
-
-
 if __name__ == "__main__":
     fast_startup_seed()
-    full_cycle()
+    hourly_bar_refresh()
+    five_minute_verification()
+    last_bar_hour = datetime.now(timezone.utc).hour
     while True:
-        target = next_hourly_target()
-        sleep_s = (target - datetime.now(timezone.utc)).total_seconds()
-        print(f"sleep {sleep_s/60:.1f}m until {target.isoformat()}", flush=True)
-        time.sleep(max(sleep_s, 1.0))
-        full_cycle()
+        time.sleep(300)  # Check every 5 minutes
+        now = datetime.now(timezone.utc)
+        if now.hour != last_bar_hour and now.minute >= 2:
+            hourly_bar_refresh()
+            last_bar_hour = now.hour
+        five_minute_verification()

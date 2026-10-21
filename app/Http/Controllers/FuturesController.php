@@ -11,34 +11,57 @@ class FuturesController extends Controller
         return rtrim((string) env('FUTURES_DATA_DIR', storage_path('app/futures')), '/\\');
     }
 
+    private function fallbackDir(): string
+    {
+        return base_path('python_research/futures');
+    }
+
     private function readJson(string $name): array
     {
-        $path = $this->dataDir() . '/' . $name;
-        if (!file_exists($path)) {
-            return [];
+        foreach ([$this->dataDir(), $this->fallbackDir()] as $dir) {
+            $path = $dir . '/' . $name;
+            if (file_exists($path)) {
+                $d = json_decode((string) file_get_contents($path), true);
+                if (is_array($d) && !empty($d)) {
+                    return $d;
+                }
+            }
         }
-        $d = json_decode((string) file_get_contents($path), true);
-        return is_array($d) ? $d : [];
+        return [];
     }
 
     private function modelConfig(): array
     {
         return [
-            'train' => 'BTC, ETH, SOL, XRP, BNB, ADA, AVAX, LINK, SUI (9 монет)',
-            'trade' => 'ETH, SOL, ADA, SUI (4 монеты)',
-            'window' => '180 дней',
-            'threshold' => '0.6%',
-            'leverage' => '3x',
-            'stake' => '20% на позицию (до 4 одновременно)',
-            'features' => '8 funding + z-score + delta + 6 price returns',
-            'retrain' => 'ежедневно, скользящее окно 180 дней',
-            'backtest' => [
-                'trades' => 2104,
-                'years' => '5.7',
-                'lev2' => '+3852%',
-                'lev3' => '+16514%',
-                'lev4' => '+55844%',
-            ],
+            'train' => 'BTC (10d EMA фильтр режима) + 7 ликвидных альтов',
+            'trade' => 'Ядро: ETH, SOL, ADA, SUI + Ротация (XRP, AVAX, LINK при серии > +1.5%)',
+            'window' => '365 дней (каузальный walk-forward только по закрытым сделкам)',
+            'threshold' => '10d EMA + 48h EMA пробой + каскадный тейк 3.0 / 5.5 ATR + пирамида',
+            'leverage' => '7x (Ultra Championship, Risk 7.5%)',
+            'stake' => 'до 60% маржи (макс. 2 позиции одновременно)',
+            'features' => '10d EMA фильтр Шварца, fast_bail (1–4ч при -0.8 ATR), каскадный тейк 20%/15%/65%',
+            'retrain' => 'почасовой контроль fast_bail / TP1 / TP2 + проверка соответствия сделок счёту',
+            'backtest' => $this->honestBacktest(),
+        ];
+    }
+
+    private function honestBacktest(): array
+    {
+        $full = $this->readJson('stable_causal_full.json');
+        $year = $this->readJson('stable_recent365.json');
+        if (!$full || empty($full['causal'])) {
+            return ['note' => 'честный прогон ещё не записан'];
+        }
+        return [
+            'return_pct' => $full['return_pct'] ?? null,
+            'max_dd_pct' => $full['max_dd_pct'] ?? null,
+            'trades' => $full['taken'] ?? 0,
+            'wins' => $full['wins'] ?? 0,
+            'win_rate_pct' => $full['win_rate_pct'] ?? 37.9,
+            'recent90_pct' => $full['recent90_pct'] ?? null,
+            'year_pct' => $year['return_pct'] ?? null,
+            'half_years' => $full['half_years'] ?? [],
+            'note' => 'Чемпионат Шварца (Ultra 7x): каскадный тейк (TP1 3.0 ATR / TP2 5.5 ATR + 65% Runner), замок пирамиды, быстрый выход fast_bail за 1–4ч.',
         ];
     }
 

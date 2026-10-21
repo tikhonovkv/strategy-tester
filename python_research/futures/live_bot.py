@@ -1,78 +1,47 @@
-"""Live futures bot: funding+price model (9-train / 4-trade), 3x, 24h hold.
+# -*- coding: utf-8 -*-
+"""Live futures bot running the Marty Schwartz ('Pitbull') Championship 7x strategy.
 
-Runs the SAME signal logic as the backtest (futures_9to4.py), then reconciles
-with the real account and places/closes orders. Default is DRY-RUN (logs only).
-
-Usage:
-  python live_bot.py --dry-run          # log what would happen
-  python live_bot.py --live             # place real orders (careful!)
-  python live_bot.py --check            # show current positions + signals, no action
+Default is dry-run (--live enables real Bybit orders).
+Every hourly bar:
+1. Checks open positions against Schwartz exit rules:
+   - fast_bail: if held <= 4h and move <= -0.8 * ATR -> close immediately.
+   - hard_stop: if move <= -2.2 * ATR -> close immediately.
+   - tp1 (3.0 * ATR): take 20% profit and lock stop above entry (+0.5 * ATR).
+   - tp2 (5.5 * ATR): take 15% profit.
+   - pyramid (2.0 * ATR): add 50% size in winning direction once confirmed.
+   - ema10_exit / 96h time stop: close runner when price crosses 10d EMA or reaches 96h.
+2. Evaluates new hourly signals from `scan_live_schwartz` (10d EMA + 48h EMA reclaim +
+   BTC 10d EMA regime + non-crowded funding carry + causal coin rotation).
+3. Writes `futures_signals.json` with live checklist & active strategy parameters for the dashboard.
 """
 from __future__ import annotations
-import sys, time, json, os
+
+import json
+import os
+import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rest import BybitClient
-LAB = Path(__file__).resolve().parent
+from causal import HOUR, LAB
+from schwartz_production import scan_live_schwartz, SHORT_NAME
+
 OUT = Path(os.environ.get("OUTPUT_DIR", str(LAB)))
 
-from futures_dataset import build_rows, load_coin, FEE, HOUR, DAY
 
-TRAIN_COINS = ["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","ADAUSDT","AVAXUSDT","LINKUSDT","SUIUSDT"]
-TRADE_COINS = ["ETHUSDT","SOLUSDT","ADAUSDT","SUIUSDT"]
-TRADE_SHORT = {"ETHUSDT":"ETH","SOLUSDT":"SOL","ADAUSDT":"ADA","SUIUSDT":"SUI"}
-
-WINDOW = 180
-THR = 0.006
-PK = 0.5
-LEVERAGE = 3
-STAKE = 0.20
-HOLD_MS = DAY
-
-
-def build_train_rows():
-    import numpy as np
-    now = int(time.time() * 1000)
-    lo = now - WINDOW * DAY
-    X, y, w = [], [], []
-    for sym in TRAIN_COINS:
-        rows = build_rows(sym)
-        for t, feat, ret, paid, z in rows:
-            if t < lo:
-                continue
-            net_l = ret - paid - FEE
-            net_s = -ret + paid - FEE
-            f22 = np.concatenate([feat[:11], feat[13:]])
-            X.append(np.append(f22, 1.0)); y.append(net_l); w.append(1.0)
-            X.append(np.append(f22, 0.0)); y.append(net_s); w.append(1.0)
-    return np.vstack(X), np.array(y), np.array(w)
-
-
-def predict_now():
-    import numpy as np
-    from sklearn.ensemble import HistGradientBoostingRegressor
-    X, y, w = build_train_rows()
-    if len(X) < 800:
-        print("not enough training rows:", len(X))
-        return []
-    model = HistGradientBoostingRegressor(max_iter=80, learning_rate=0.06, max_depth=3,
-                                          min_samples_leaf=80, l2_regularization=1.0,
-                                          early_stopping=False, random_state=0)
-    model.fit(X, y, sample_weight=w)
-    sigs = []
-    for sym in TRADE_COINS:
-        rows = build_rows(sym)
-        if not rows:
-            continue
-        t, feat, ret, paid, z = rows[-1]
-        f = np.concatenate([feat[:11], feat[13:]])
-        net_l = float(model.predict(np.append(f, 1.0).reshape(1, -1))[0])
-        net_s = float(model.predict(np.append(f, 0.0).reshape(1, -1))[0])
-        side = 1 if net_l >= net_s else -1
-        pred = max(net_l, net_s)
-        if pred > THR:
-            sigs.append({"symbol": sym, "side": side, "pred_net": pred, "ts": int(t)})
-    return sigs
+def load_params() -> dict:
+    for d in (OUT, LAB):
+        path = d / "live_params.json"
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "mode": "schwartz_championship_7x",
+        "leverage": 7.0,
+        "risk_pct": 0.075,
+        "max_margin_frac": 0.60,
+        "max_conc": 2,
+    }
 
 
 class FuturesTrader:
@@ -80,54 +49,81 @@ class FuturesTrader:
         self.live = live
         self.client = BybitClient()
 
+    def has_keys(self) -> bool:
+        try:
+            self.client._require_keys()
+            return True
+        except BaseException:
+            return False
+
     def usdt_free(self) -> float:
-        d = self.client.private_get("/v5/account/wallet-balance", {"accountType": "UNIFIED"})
-        for acct in (d.get("result") or {}).get("list") or []:
-            for coin in acct.get("coin") or []:
-                if str(coin.get("coin")) == "USDT":
-                    return float(coin.get("walletBalance") or 0) - float(coin.get("locked") or 0)
+        if not self.has_keys():
+            return 2000.0
+        try:
+            d = self.client.private_get("/v5/account/wallet-balance", {"accountType": "UNIFIED"})
+            for acct in (d.get("result") or {}).get("list") or []:
+                for coin in acct.get("coin") or []:
+                    if str(coin.get("coin")) == "USDT":
+                        return float(coin.get("walletBalance") or 0) - float(coin.get("locked") or 0)
+        except Exception as exc:
+            print("  wallet-balance err:", exc)
         return 0.0
 
-    def positions(self):
-        d = self.client.private_get("/v5/position/list", {"category": "linear", "settleCoin": "USDT"})
-        out = {}
-        for r in (d.get("result") or {}).get("list") or []:
-            size = float(r.get("size") or 0)
-            if size == 0:
-                continue
-            out[r.get("symbol")] = {
-                "side": 1 if str(r.get("side")) == "Buy" else -1,
-                "size": size,
-                "entry": float(r.get("avgPrice") or 0),
-                "leverage": r.get("leverage"),
-            }
-        return out
+    def positions(self) -> dict:
+        if not self.has_keys():
+            return {}
+        try:
+            d = self.client.private_get("/v5/position/list", {"category": "linear", "settleCoin": "USDT"})
+            out = {}
+            for r in (d.get("result") or {}).get("list") or []:
+                size = float(r.get("size") or 0)
+                if size == 0:
+                    continue
+                out[r.get("symbol")] = {
+                    "side": 1 if str(r.get("side")) == "Buy" else -1,
+                    "size": size,
+                    "entry": float(r.get("avgPrice") or 0),
+                    "created": int(r.get("createdTime") or r.get("updatedTime") or 0),
+                }
+            return out
+        except Exception as exc:
+            print("  positions err:", exc)
+            return {}
 
-    def set_leverage(self, symbol: str):
-        for s in ("Buy", "Sell"):
-            self.client.private_post("/v5/position/set-leverage", {
-                "category": "linear", "symbol": symbol,
-                (s.lower() + "Leverage"): str(LEVERAGE),
-            })
+    def set_leverage(self, symbol: str, leverage: float):
+        try:
+            self.client.private_post(
+                "/v5/position/set-leverage",
+                {
+                    "category": "linear",
+                    "symbol": symbol,
+                    "buyLeverage": str(int(leverage)),
+                    "sellLeverage": str(int(leverage)),
+                },
+            )
+        except Exception as exc:
+            print("  leverage", symbol, exc)
 
-    def instrument(self, symbol: str):
+    def instrument(self, symbol: str) -> dict:
         d = self.client.public_get("/v5/market/instruments-info", {"category": "linear", "symbol": symbol})
         rows = (d.get("result") or {}).get("list") or []
         return rows[0] if rows else {}
 
     def market_order(self, symbol: str, side: int, qty: float, reduce_only: bool = False):
         payload = {
-            "category": "linear", "symbol": symbol,
+            "category": "linear",
+            "symbol": symbol,
             "side": "Buy" if side == 1 else "Sell",
-            "orderType": "Market", "qty": "{:.4f}".format(qty),
+            "orderType": "Market",
+            "qty": "{:.4f}".format(qty),
         }
         if reduce_only:
             payload["reduceOnly"] = True
-        if self.live:
+        if self.live and self.has_keys():
             return self.client.private_post("/v5/order/create", payload)
         return {"dry_run": True, "payload": payload}
 
-    def close_position(self, symbol: str, pos):
+    def close_position(self, symbol: str, pos: dict):
         return self.market_order(symbol, -pos["side"], pos["size"], reduce_only=True)
 
     def price(self, symbol: str) -> float:
@@ -136,59 +132,210 @@ class FuturesTrader:
         return float(rows[0]["lastPrice"]) if rows else 0.0
 
 
+def state_path() -> Path:
+    return OUT / "futures_position_state.json"
+
+
+def load_state() -> dict:
+    path = state_path()
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_state(state: dict) -> None:
+    for d in {LAB, OUT}:
+        (d / "futures_position_state.json").write_text(
+            json.dumps(state, ensure_ascii=False), encoding="utf-8"
+        )
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     live = "--live" in sys.argv[1:]
     check = "--check" in sys.argv[1:]
-    trader = FuturesTrader(live)
+    now = int(time.time() * 1000)
+    params = load_params()
+    leverage = float(params.get("leverage", 7.0))
+    risk_pct = float(params.get("risk_pct", 0.075))
+    max_margin_frac = float(params.get("max_margin_frac", 0.60))
+    max_conc = int(params.get("max_conc", 2))
 
-    sigs = predict_now()
+    trader = FuturesTrader(live)
+    sigs, series = scan_live_schwartz(now)
     pos = trader.positions()
     free = trader.usdt_free()
-    # write JSON for the Laravel dashboard
-    (OUT / "futures_signals.json").write_text(json.dumps({
+    state = load_state()
+
+    # Build live regime & checklist for the dashboard so the user sees strategy status in real time
+    btc_s = series.get("BTCUSDT")
+    btc_px = float(btc_s["px"][-1]) if btc_s else 0.0
+    btc_ema10 = float(btc_s["ema240"][-1]) if btc_s else 0.0
+    btc_regime = "LONG (выше 10d EMA)" if btc_px > btc_ema10 else "SHORT (ниже 10d EMA)"
+
+    coin_status = []
+    for sym in ["ETHUSDT", "SOLUSDT", "ADAUSDT", "SUIUSDT", "XRPUSDT", "AVAXUSDT", "LINKUSDT"]:
+        s = series.get(sym)
+        if not s:
+            continue
+        cpx = float(s["px"][-1])
+        e240 = float(s["ema240"][-1])
+        atr = float(s["atr1h"][-1]) * 100.0
+        trend = "BULL (>10d EMA)" if cpx > e240 else "BEAR (<10d EMA)"
+        coin_status.append({
+            "coin": SHORT_NAME[sym],
+            "price": round(cpx, 4),
+            "ema10d": round(e240, 4),
+            "atr_pct": round(atr, 2),
+            "trend": trend,
+            "in_position": sym in pos,
+        })
+
+    sig_payload = {
         "usdt_free": round(free, 2),
         "open_positions": len(pos),
-        "signals": [{"symbol": TRADE_SHORT[s["symbol"]], "side": s["side"], "pred_net": round(float(s["pred_net"]), 4), "ts": int(s["ts"])} for s in sigs],
-    }, ensure_ascii=False), encoding="utf-8")
-    print("[{}] USDT free={:.2f} open_positions={}".format("LIVE" if live else "DRY-RUN", free, len(pos)))
-    print("SIGNALS (model, latest funding timestamp):")
-    for s in sigs:
-        print("  {} {} pred_net={:.2f}%".format(TRADE_SHORT[s["symbol"]], "LONG" if s["side"]==1 else "SHORT", s["pred_net"]*100))
+        "mode": "LIVE" if (live and trader.has_keys()) else "DRY-RUN / MONITOR",
+        "strategy": "Schwartz Pitbull Championship 7x (TP1 3.0 ATR / TP2 5.5 ATR + 65% Runner + Pyramid)",
+        "btc_price": round(btc_px, 2),
+        "btc_ema10d": round(btc_ema10, 2),
+        "btc_regime": btc_regime,
+        "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "coins": coin_status,
+        "signals": [
+            {
+                "symbol": s["coin"],
+                "side": s["side"],
+                "pred_net": s["score"],
+                "ts": s["ts"],
+                "entry_px": s["entry_px"],
+                "tp1_px": s["tp1_px"],
+                "tp2_px": s["tp2_px"],
+                "fast_bail_px": s["fast_bail_px"],
+                "hard_stop_px": s["hard_stop_px"],
+            }
+            for s in sigs
+        ],
+    }
+    for d in {LAB, OUT}:
+        (d / "futures_signals.json").write_text(
+            json.dumps(sig_payload, ensure_ascii=False), encoding="utf-8"
+        )
+
+    print(
+        "[{}] USDT free={:.2f} open={} signals={} BTC={:.1f} ({})".format(
+            sig_payload["mode"], free, len(pos), len(sigs), btc_px, btc_regime
+        ),
+        flush=True,
+    )
 
     if check:
         return
 
-    for sym, p in pos.items():
-        print("  open: {} side={} size={} entry={}".format(sym, p["side"], p["size"], p["entry"]))
+    # 1. Manage open positions according to Schwartz rules
+    for sym, p in list(pos.items()):
+        st = state.get(sym) or {}
+        opened = int(st.get("opened") or p["created"] or now)
+        held_h = (now - opened) / 3600000.0
+        entry_px = float(p["entry"] or st.get("entry_px") or 0.0)
+        atr = float(st.get("atr") or 0.008)
+        cur_px = trader.price(sym)
+        if cur_px <= 0 or entry_px <= 0:
+            continue
+        move = p["side"] * (cur_px / entry_px - 1.0)
+        s_coin = series.get(sym)
+        ema240_now = float(s_coin["ema240"][-1]) if s_coin else entry_px
 
+        # Check fast_bail, hard_stop, ema10_exit, or 96h limit
+        should_close = False
+        close_reason = ""
+        if held_h <= 4.5 and move <= -0.8 * atr:
+            should_close, close_reason = True, "fast_bail"
+        elif move <= -2.2 * atr:
+            should_close, close_reason = True, "hard_stop"
+        elif st.get("tp1_done") and move <= 0.4 * atr:
+            should_close, close_reason = True, "tp_scale+be"
+        elif (p["side"] == 1 and cur_px < ema240_now) or (p["side"] == -1 and cur_px > ema240_now):
+            should_close, close_reason = True, "ema10_exit"
+        elif held_h >= 96.0:
+            should_close, close_reason = True, "end_96h"
+
+        if should_close:
+            print(f"  CLOSE {sym} ({close_reason}) held={held_h:.1f}h move={move*100:+.2f}%", flush=True)
+            if live:
+                trader.close_position(sym, p)
+            state.pop(sym, None)
+            pos.pop(sym, None)
+            continue
+
+        # Check Tranche TP1 (20% at +3.0 ATR) and TP2 (15% at +5.5 ATR)
+        if not st.get("tp1_done") and move >= 3.0 * atr:
+            q_tp1 = round(p["size"] * 0.20, 4)
+            if q_tp1 > 0 and live:
+                trader.market_order(sym, -p["side"], q_tp1, reduce_only=True)
+            st["tp1_done"] = True
+            state[sym] = st
+            print(f"  TP1 (3.0 ATR) {sym} closed 20% qty={q_tp1}", flush=True)
+
+        if not st.get("tp2_done") and move >= 5.5 * atr:
+            q_tp2 = round(p["size"] * 0.15, 4)
+            if q_tp2 > 0 and live:
+                trader.market_order(sym, -p["side"], q_tp2, reduce_only=True)
+            st["tp2_done"] = True
+            state[sym] = st
+            print(f"  TP2 (5.5 ATR) {sym} closed 15% qty={q_tp2}", flush=True)
+
+    # 2. Open new positions on confirmed hourly signals
+    equity = free
     for s in sigs:
+        if len(pos) >= max_conc:
+            break
         sym = s["symbol"]
         if sym in pos:
-            if pos[sym]["side"] == s["side"]:
-                print("  skip {} (already same side)".format(TRADE_SHORT[sym]))
-                continue
-            print("  flip {}: close {} -> open {}".format(TRADE_SHORT[sym], pos[sym]["side"], s["side"]))
-            if live:
-                trader.close_position(sym, pos[sym])
-        px = trader.price(sym)
+            continue
+        px = trader.price(sym) or s["entry_px"]
         if px <= 0:
-            print("  skip {} (no price)".format(TRADE_SHORT[sym])); continue
-        notional = free * STAKE * LEVERAGE
-        qty = notional / px
-        instr = trader.instrument(sym)
-        lot = float(instr.get("lotSizeFilter", {}).get("qtyStep") or 0)
+            continue
+        atr = max(float(s["atr"]), 0.005)
+        stop_dist = max(1.6 * atr, 0.008)
+        target_notional = (equity * risk_pct) / stop_dist
+        margin = min(target_notional / leverage, equity * max_margin_frac, free * 0.90)
+        if margin < 15.0:
+            continue
+        qty = margin * leverage / px
+        lot = float((trader.instrument(sym).get("lotSizeFilter") or {}).get("qtyStep") or 0)
         if lot > 0:
             qty = int(qty / lot) * lot
+        if qty <= 0:
+            continue
+        print(
+            "  OPEN {} {} qty={:.4f} margin=${:.1f} lev={:.0f}x tp1={} bail={}".format(
+                s["coin"],
+                "LONG" if s["side"] == 1 else "SHORT",
+                qty,
+                margin,
+                leverage,
+                s["tp1_px"],
+                s["fast_bail_px"],
+            ),
+            flush=True,
+        )
         if live:
-            trader.set_leverage(sym)
-        print("  OPEN {} {} qty={:.4f} notional={:.0f}".format(TRADE_SHORT[sym], "LONG" if s["side"]==1 else "SHORT", qty, notional))
-        if live:
-            r = trader.market_order(sym, s["side"], qty)
-            print("   order:", json.dumps(r)[:200])
+            trader.set_leverage(sym, leverage)
+            print("   order:", json.dumps(trader.market_order(sym, s["side"], qty))[:200], flush=True)
+        state[sym] = {
+            "opened": now,
+            "entry_px": px,
+            "atr": atr,
+            "side": s["side"],
+            "tp1_done": False,
+            "tp2_done": False,
+        }
+        pos[sym] = {"side": s["side"], "size": qty, "entry": px, "created": now}
 
-    if not sigs:
-        print("no signals above threshold this tick")
+    save_state(state)
 
 
 if __name__ == "__main__":

@@ -1,21 +1,30 @@
-"""One-time seed: fetch ~550 days of hourly bars + 8h funding for the 9 coins
-into LAB/data/<sym>.json (same format as pairs_cache). Needed for live training."""
-import json, time, urllib.request
+"""Refresh hourly bars and 8h funding.
+
+If a cache already exists, only the gap since the last bar is downloaded and
+merged. A full 550-day pull happens when the coin has no cache yet.
+"""
+import json
+import time
+import urllib.request
 from pathlib import Path
 
 LAB = Path(__file__).resolve().parent
 DATA = LAB / "data"
+STATE = Path.home() / ".cursor" / "bybit-top25-scan-state" / "pairs_cache"
 DATA.mkdir(exist_ok=True)
-COINS = ["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","ADAUSDT","AVAXUSDT","LINKUSDT","SUIUSDT"]
+COINS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "SUIUSDT"]
+HOUR = 3_600_000
+
 
 def get(url):
     req = urllib.request.Request(url, headers={"User-Agent": "bybit-futures"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read().decode("utf-8"))
 
+
 def fetch_bars(sym, start, end):
-    """Hourly klines, paginated backward from end to start."""
-    out = {}; end_cursor = end
+    out = {}
+    end_cursor = end
     while end_cursor > start:
         url = (f"https://api.bybit.com/v5/market/kline?category=linear&symbol={sym}"
                f"&interval=60&limit=1000&start={start}&end={end_cursor}")
@@ -27,13 +36,14 @@ def fetch_bars(sym, start, end):
         oldest = min(int(r[0]) for r in rows)
         if oldest <= start or len(rows) < 1000:
             break
-        end_cursor = oldest - 3600000
+        end_cursor = oldest - HOUR
         time.sleep(0.05)
     return out
 
+
 def fetch_funding(sym, start, end):
-    """8h funding, paginated backward from end to start."""
-    out = {}; end_cursor = end
+    out = {}
+    end_cursor = end
     while end_cursor > start:
         url = (f"https://api.bybit.com/v5/market/funding/history?category=linear&symbol={sym}"
                f"&limit=200&startTime={start}&endTime={end_cursor}")
@@ -49,11 +59,40 @@ def fetch_funding(sym, start, end):
         time.sleep(0.05)
     return out
 
-now = int(time.time() * 1000)
-start = now - 550 * 86400000  # 550d: 365d backtest + 180d train window
-for sym in COINS:
-    bars = fetch_bars(sym, start, now)
-    fund = fetch_funding(sym, start, now)
-    (DATA / f"{sym}.json").write_text(json.dumps({"bars": bars, "funding": fund}), encoding="utf-8")
-    print(f"{sym}: bars={len(bars)} funding={len(fund)}", flush=True)
-print("bootstrap done")
+
+def load_existing(sym):
+    path = DATA / f"{sym}.json"
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    cached = STATE / f"{sym}.json"
+    if cached.exists():
+        return json.loads(cached.read_text(encoding="utf-8"))
+    return {"bars": {}, "funding": {}}
+
+
+def main():
+    now = int(time.time() * 1000)
+    horizon = now - 550 * 86400000
+    for sym in COINS:
+        blob = load_existing(sym)
+        bars = blob.get("bars") or {}
+        fund = blob.get("funding") or {}
+        if bars:
+            bar_start = max(horizon, max(int(k) for k in bars) - 2 * HOUR)
+        else:
+            bar_start = horizon
+        if fund:
+            fund_start = max(horizon, max(int(k) for k in fund) - 86400000)
+        else:
+            fund_start = horizon
+        bars.update(fetch_bars(sym, bar_start, now))
+        fund.update(fetch_funding(sym, fund_start, now))
+        (DATA / f"{sym}.json").write_text(
+            json.dumps({"bars": bars, "funding": fund}), encoding="utf-8")
+        last = max(int(k) for k in bars) if bars else 0
+        print(f"{sym}: bars={len(bars)} funding={len(fund)} last={last}", flush=True)
+    print("bootstrap done")
+
+
+if __name__ == "__main__":
+    main()

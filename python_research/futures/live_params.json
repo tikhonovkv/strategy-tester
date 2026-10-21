@@ -1,0 +1,1 @@
+{"spec": ["schwartz_championship_7x", 0.0], "mode": "schwartz_championship_7x", "leverage": 7.0, "risk_pct": 0.075, "max_margin_frac": 0.6, "max_conc": 2, "pyr_mult": 1.5, "tp1_atr": 3.0, "tp2_atr": 5.5, "fast_bail_h": 4, "fast_bail_atr": 0.8, "hard_stop_atr": 2.2, "tag": "causal_full"}

@@ -157,7 +157,11 @@ def main():
     sys.stdout.reconfigure(encoding="utf-8")
     live = "--live" in sys.argv[1:]
     check = "--check" in sys.argv[1:]
+    hourly_close = "--hourly-close" in sys.argv[1:]
     now = int(time.time() * 1000)
+    now_dt = datetime.now(timezone.utc)
+    if now_dt.minute <= 7:
+        hourly_close = True
     params = load_params()
     leverage = float(params.get("leverage", 7.0))
     risk_pct = float(params.get("risk_pct", 0.075))
@@ -248,19 +252,21 @@ def main():
         s_coin = series.get(sym)
         ema240_now = float(s_coin["ema240"][-1]) if s_coin else entry_px
 
-        # Check fast_bail, hard_stop, ema10_exit, or 96h limit
+        # Check exits: hard_stop and end_96h on every 5m tick;
+        # fast_bail, breakeven and ema10_exit ONLY on hourly close (prevents 5m wick shakeouts)
+        be_floor = 1.15 * atr if st.get("pyr_done") else 0.4 * atr
         should_close = False
         close_reason = ""
-        if held_h <= 4.5 and move <= -0.8 * atr:
-            should_close, close_reason = True, "fast_bail"
-        elif move <= -2.2 * atr:
+        if move <= -2.2 * atr:
             should_close, close_reason = True, "hard_stop"
-        elif st.get("tp1_done") and move <= 0.4 * atr:
-            should_close, close_reason = True, "tp_scale+be"
-        elif (p["side"] == 1 and cur_px < ema240_now) or (p["side"] == -1 and cur_px > ema240_now):
-            should_close, close_reason = True, "ema10_exit"
         elif held_h >= 96.0:
             should_close, close_reason = True, "end_96h"
+        elif hourly_close and held_h >= 0.8 and held_h <= 4.5 and move <= -0.8 * atr:
+            should_close, close_reason = True, "fast_bail"
+        elif hourly_close and st.get("tp1_done") and move <= be_floor:
+            should_close, close_reason = True, "tp_scale+be"
+        elif hourly_close and ((p["side"] == 1 and cur_px < ema240_now) or (p["side"] == -1 and cur_px > ema240_now)):
+            should_close, close_reason = True, "ema10_exit"
 
         if should_close:
             print(f"  CLOSE {sym} ({close_reason}) held={held_h:.1f}h move={move*100:+.2f}%", flush=True)
@@ -269,6 +275,20 @@ def main():
             state.pop(sym, None)
             pos.pop(sym, None)
             continue
+
+        # Check Pyramid add (+50% of initial size at +2.0 ATR)
+        if not st.get("pyr_done") and move >= 2.0 * atr:
+            base_qty = float(st.get("base_qty") or p["size"])
+            q_pyr = round(base_qty * 0.50, 4)
+            lot = float((trader.instrument(sym).get("lotSizeFilter") or {}).get("qtyStep") or 0)
+            if lot > 0:
+                q_pyr = int(q_pyr / lot) * lot
+            if q_pyr > 0 and live:
+                trader.market_order(sym, p["side"], q_pyr, reduce_only=False)
+            st["pyr_done"] = True
+            st["pyr_px"] = cur_px
+            state[sym] = st
+            print(f"  PYRAMID (+2.0 ATR) {sym} added 50% qty={q_pyr} at {cur_px}", flush=True)
 
         # Check Tranche TP1 (20% at +3.0 ATR) and TP2 (15% at +5.5 ATR)
         if not st.get("tp1_done") and move >= 3.0 * atr:
@@ -287,9 +307,9 @@ def main():
             state[sym] = st
             print(f"  TP2 (5.5 ATR) {sym} closed 15% qty={q_tp2}", flush=True)
 
-    # 2. Open new positions on confirmed hourly signals
+    # 2. Open new positions ONLY on the hourly candle close check
     equity = free
-    for s in sigs:
+    for s in (sigs if hourly_close else []):
         if len(pos) >= max_conc:
             break
         sym = s["symbol"]
@@ -328,8 +348,10 @@ def main():
         state[sym] = {
             "opened": now,
             "entry_px": px,
+            "base_qty": qty,
             "atr": atr,
             "side": s["side"],
+            "pyr_done": False,
             "tp1_done": False,
             "tp2_done": False,
         }

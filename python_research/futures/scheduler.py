@@ -33,7 +33,7 @@ def run(args: list[str]) -> None:
 
 def fast_startup_seed() -> None:
     run(["schwartz_production.py"])
-    run(["live_bot.py", MODE])
+    run(["live_bot.py", MODE, "--hourly-close"])
     run(["compare_live.py"])
 
 
@@ -44,20 +44,25 @@ def hourly_bar_refresh() -> None:
     run(["schwartz_production.py"])
 
 
-def five_minute_verification() -> None:
-    run(["live_bot.py", MODE])
+def five_minute_verification(is_hourly: bool = False) -> None:
+    cmd = ["live_bot.py", MODE]
+    if is_hourly:
+        cmd.append("--hourly-close")
+    run(cmd)
     run(["compare_live.py"])
 
 
 if __name__ == "__main__":
     fast_startup_seed()
     hourly_bar_refresh()
-    five_minute_verification()
+    five_minute_verification(is_hourly=True)
     last_bar_hour = datetime.now(timezone.utc).hour
     while True:
         time.sleep(300)  # Check every 5 minutes
         now = datetime.now(timezone.utc)
+        did_hourly = False
         if now.hour != last_bar_hour and now.minute >= 2:
             hourly_bar_refresh()
             last_bar_hour = now.hour
-        five_minute_verification()
+            did_hourly = True
+        five_minute_verification(is_hourly=did_hourly)

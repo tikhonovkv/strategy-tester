@@ -104,6 +104,8 @@ def fetch_live_executions_and_closed_pnl():
                 {"category": "linear", "limit": "100", "startTime": str(start), "endTime": str(end)},
             )
             for r in (d.get("result") or {}).get("list") or []:
+                if str(r.get("execType") or "Trade") != "Trade":
+                    continue
                 sym = str(r.get("symbol") or "")
                 coin = sym.replace("USDT", "")
                 fills.append({
@@ -118,50 +120,61 @@ def fetch_live_executions_and_closed_pnl():
             pass
     fills.sort(key=lambda x: x["ts"])
 
-    # 3. Closed PnL history over last 90 days (13 weekly windows, fast)
+    # 3. Closed PnL history over last 90 days (first call without time filter for latest records, then weekly windows)
     closed_pnl = []
     seen_ids = set()
-    for i in range(13):
-        end = now - i * 7 * day
-        start = end - 7 * day
-        try:
-            d = client.private_get(
-                "/v5/position/closed-pnl",
-                {"category": "linear", "limit": "100", "startTime": str(start), "endTime": str(end)},
-            )
-            for r in (d.get("result") or {}).get("list") or []:
-                oid = str(r.get("orderId") or "")
-                if oid in seen_ids:
-                    continue
-                seen_ids.add(oid)
-                ut = int(r.get("updatedTime") or r.get("createdTime") or 0)
-                ct = int(r.get("createdTime") or ut)
-                sym = str(r.get("symbol") or "")
-                # Note: in Bybit closed-pnl, side='Sell' means the closing order was Sell (i.e. LONG position closed)
-                close_side = str(r.get("side") or "")
-                pos_side = 1 if close_side.lower() == "sell" else -1
-                closed_pnl.append({
-                    "order_id": oid,
-                    "symbol": sym,
-                    "coin": sym.replace("USDT", ""),
-                    "side": pos_side,
-                    "created_ts": ct,
-                    "closed_ts": ut,
-                    "time": iso(ct),
-                    "exit_time": iso(ut),
-                    "qty": float(r.get("closedSize") or r.get("qty") or 0),
-                    "entry_price": float(r.get("avgEntryPrice") or 0),
-                    "exit_price": float(r.get("avgExitPrice") or 0),
-                    "leverage": float(r.get("leverage") or 1),
-                    "pnl_usd": round(float(r.get("closedPnl") or 0), 2),
-                })
-        except Exception:
-            pass
+    for i in range(-1, 13):
+        params = {"category": "linear", "limit": "100"}
+        if i >= 0:
+            end = now - i * 7 * day
+            start = end - 7 * day
+            params["startTime"] = str(start)
+            params["endTime"] = str(end)
+        for attempt in range(2):
+            try:
+                d = client.private_get("/v5/position/closed-pnl", params)
+                for r in (d.get("result") or {}).get("list") or []:
+                    oid = str(r.get("orderId") or "")
+                    if oid in seen_ids:
+                        continue
+                    seen_ids.add(oid)
+                    ut = int(r.get("updatedTime") or r.get("createdTime") or 0)
+                    sym = str(r.get("symbol") or "")
+                    close_side = str(r.get("side") or "")
+                    pos_side = 1 if close_side.lower() == "sell" else -1
+                    closed_size = float(r.get("closedSize") or r.get("qty") or 0)
+                    # Recover true entry timestamp from trade executions (Bybit createdTime on closed-pnl is the closing order timestamp)
+                    entry_ts = int(r.get("createdTime") or ut)
+                    acc_q = 0.0
+                    for fl in reversed(fills):
+                        if fl["symbol"] == sym and fl["side"] == pos_side and fl["ts"] <= ut:
+                            acc_q += fl["qty"]
+                            entry_ts = fl["ts"]
+                            if acc_q >= closed_size * 0.90:
+                                break
+                    closed_pnl.append({
+                        "order_id": oid,
+                        "symbol": sym,
+                        "coin": sym.replace("USDT", ""),
+                        "side": pos_side,
+                        "created_ts": entry_ts,
+                        "closed_ts": ut,
+                        "time": iso(entry_ts),
+                        "exit_time": iso(ut),
+                        "qty": closed_size,
+                        "entry_price": float(r.get("avgEntryPrice") or 0),
+                        "exit_price": float(r.get("avgExitPrice") or 0),
+                        "leverage": float(r.get("leverage") or 1),
+                        "pnl_usd": round(float(r.get("closedPnl") or 0), 2),
+                    })
+                break
+            except Exception:
+                time.sleep(0.3)
     closed_pnl.sort(key=lambda x: x["closed_ts"])
     return fills, closed_pnl, round(wallet_usdt, 2)
 
 
-def build_real_equity_curve(closed_pnl: list[dict], wallet_now: float, cut_ts: int):
+def build_real_equity_curve(closed_pnl: list[dict], wallet_now: float, cut_ts: int, bt_trades: list[dict] | None = None):
     """Reconstruct actual account balance & PnL % curve inside the period [cut_ts, now]."""
     now_ms = int(time.time() * 1000)
     in_period = [c for c in closed_pnl if c["closed_ts"] >= cut_ts]
@@ -175,6 +188,14 @@ def build_real_equity_curve(closed_pnl: list[dict], wallet_now: float, cut_ts: i
         pct = round((running_bal / start_bal - 1.0) * 100.0, 2)
         c["pnl_pct"] = round((c["pnl_usd"] / start_bal) * 100.0, 2)
         c["eq_after"] = round(running_bal, 2)
+        # Check whether this closed trade matches a Schwartz signal or is post-launch
+        matched_bt = False
+        if bt_trades:
+            for bt in bt_trades:
+                if bt["coin"] == c["coin"] and bt["side"] == c["side"] and abs(bt["ts"] - c["created_ts"]) <= 36 * 3600000:
+                    matched_bt = True
+                    break
+        c["is_schwartz"] = bool(matched_bt or (c["created_ts"] >= 1792713600000 and abs(c.get("leverage", 0) - 7.0) < 0.5))
         pts.append([c["exit_time"], pct, round(running_bal, 2)])
     pts.append([iso(now_ms), round((running_bal / start_bal - 1.0) * 100.0, 2), round(running_bal, 2)])
     return {
@@ -184,6 +205,7 @@ def build_real_equity_curve(closed_pnl: list[dict], wallet_now: float, cut_ts: i
         "return_pct": round((running_bal / start_bal - 1.0) * 100.0, 2),
         "trades_count": len(in_period),
         "wins_count": sum(1 for c in in_period if c["pnl_usd"] > 0),
+        "schwartz_count": sum(1 for c in in_period if c.get("is_schwartz")),
         "curve": pts,
         "closed_trades": list(reversed(in_period)),
     }
@@ -257,7 +279,8 @@ def render_html(periods):
         final_eq = round(float(raw_j.get("final", 2000.0)), 2)
 
         cut_ts = 0 if days >= 1000 else now_ms - days * day
-        real_acct = build_real_equity_curve(closed_pnl, wallet_now, cut_ts)
+        real_acct = build_real_equity_curve(closed_pnl, wallet_now, cut_ts, bt)
+        matched = max(matched, int(real_acct.get("schwartz_count", 0)))
 
         jperiods.append({
             "label": label,
@@ -311,9 +334,9 @@ def render_html(periods):
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
     for target_dir in {LAB, OUT}:
-        (target_dir / "futures_compare.json").write_text(
-            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
-        )
+        tmp = target_dir / "futures_compare.json.tmp"
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, target_dir / "futures_compare.json")
     print("saved futures_compare.json with real_account PnL and backtest curves", flush=True)
 
 

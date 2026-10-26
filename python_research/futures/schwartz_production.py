@@ -68,6 +68,49 @@ def build_tranche_candidates() -> tuple[list[dict], dict]:
                 by_key[(int(tr["t"]), tr["sym"])] = tr
     series = {sym: build_hourly_series(sym) for sym in ["BTCUSDT"] + ALTS_7}
     idx_map = {sym: {int(ts): i for i, ts in enumerate(s["close_ts"])} for sym, s in series.items()}
+    # Append newly closed hourly signals after championship_dump.json cutoff
+    dump_max_t = max((t for (t, _sym) in by_key), default=0)
+    btc = series["BTCUSDT"]
+    btc_map = idx_map["BTCUSDT"]
+    for sym in ALTS_7:
+        s = series[sym]
+        close_ts, px, ema240, f_ts, f_rate = s["close_ts"], s["px"], s["ema240"], s["f_ts"], s["f_rate"]
+        n = len(px)
+        if n < 265:
+            continue
+        ema48 = np.zeros(n, dtype=np.float64)
+        a48 = 2.0 / 49.0
+        ema48[0] = px[0]
+        for k in range(1, n):
+            ema48[k] = a48 * px[k] + (1.0 - a48) * ema48[k - 1]
+        for i in range(240, n - 1):
+            t_ms = int(close_ts[i])
+            if t_ms <= dump_max_t or (t_ms, sym) in by_key:
+                continue
+            bi = btc_map.get(t_ms)
+            if bi is None or bi < 240:
+                continue
+            cur_px, prev_px = float(px[i]), float(px[i - 1])
+            es = float(ema240[i])
+            slope_s = es / float(ema240[i - 24]) - 1.0
+            side = 0
+            if cur_px > es and slope_s > 0 and ema48[i] > es and prev_px <= ema48[i - 1] and cur_px > ema48[i]:
+                side = 1
+            elif cur_px < es and slope_s < 0 and ema48[i] < es and prev_px >= ema48[i - 1] and cur_px < ema48[i]:
+                side = -1
+            if side == 0:
+                continue
+            fi = int(np.searchsorted(f_ts, t_ms, side="right")) - 1
+            if fi < 90:
+                continue
+            f_hist = f_rate[fi - 89:fi + 1]
+            f_z = float(f_rate[fi] - f_hist.mean()) / (float(f_hist.std()) + 1e-8)
+            carry_z = -side * f_z
+            btc_px, btc_e240 = float(btc["px"][bi]), float(btc["ema240"][bi])
+            btc_ok = (side == 1 and btc_px > btc_e240) or (side == -1 and btc_px < btc_e240)
+            if not btc_ok or carry_z < 0.0:
+                continue
+            by_key[(t_ms, sym)] = {"t": t_ms, "sym": sym, "side": side}
     raw_list = [tr for (t, sym), tr in sorted(by_key.items()) if sym in ALTS_7]
     cands = []
     for tr in raw_list:
@@ -355,9 +398,9 @@ def export_all_windows() -> None:
             "mode": "schwartz_championship_7x",
         }
         for target_dir in {LAB, OUT}:
-            (target_dir / f"stable_{tag}.json").write_text(
-                json.dumps(payload, ensure_ascii=False), encoding="utf-8"
-            )
+            tmp = target_dir / f"stable_{tag}.json.tmp"
+            tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, target_dir / f"stable_{tag}.json")
         print(
             f"Exported stable_{tag}.json: n={res['n']} wins={res['wins']} "
             f"ret={res['ret']:+.2f}% dd={res['dd']:.1f}% final=${res['final']:,.2f}",
@@ -379,9 +422,9 @@ def export_all_windows() -> None:
         "tag": "causal_full",
     }
     for target_dir in {LAB, OUT}:
-        (target_dir / "live_params.json").write_text(
-            json.dumps(live_params, ensure_ascii=False), encoding="utf-8"
-        )
+        tmp = target_dir / "live_params.json.tmp"
+        tmp.write_text(json.dumps(live_params, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, target_dir / "live_params.json")
 def scan_live_schwartz(now_ms: int | None = None) -> tuple[list[dict], dict]:
     """Evaluate the latest closed hourly bar across the liquid universe for live_bot.py."""
     if now_ms is None:

@@ -4,14 +4,17 @@ If a cache already exists, only the gap since the last bar is downloaded and
 merged. A full 550-day pull happens when the coin has no cache yet.
 """
 import json
+import os
 import time
 import urllib.request
 from pathlib import Path
 
+OUT = Path(os.environ.get("OUTPUT_DIR", str(Path(__file__).resolve().parent)))
 LAB = Path(__file__).resolve().parent
-DATA = LAB / "data"
+DATA = OUT / "data"
+SEED_DATA = LAB / "data"
 STATE = Path.home() / ".cursor" / "bybit-top25-scan-state" / "pairs_cache"
-DATA.mkdir(exist_ok=True)
+DATA.mkdir(parents=True, exist_ok=True)
 COINS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "SUIUSDT"]
 HOUR = 3_600_000
 
@@ -61,12 +64,13 @@ def fetch_funding(sym, start, end):
 
 
 def load_existing(sym):
-    path = DATA / f"{sym}.json"
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    cached = STATE / f"{sym}.json"
-    if cached.exists():
-        return json.loads(cached.read_text(encoding="utf-8"))
+    for folder in (DATA, SEED_DATA, STATE):
+        path = folder / f"{sym}.json"
+        if path.exists():
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
     return {"bars": {}, "funding": {}}
 
 
@@ -87,8 +91,11 @@ def main():
             fund_start = horizon
         bars.update(fetch_bars(sym, bar_start, now))
         fund.update(fetch_funding(sym, fund_start, now))
-        (DATA / f"{sym}.json").write_text(
-            json.dumps({"bars": bars, "funding": fund}), encoding="utf-8")
+        for folder in {DATA, SEED_DATA}:
+            folder.mkdir(parents=True, exist_ok=True)
+            tmp = folder / f"{sym}.json.tmp"
+            tmp.write_text(json.dumps({"bars": bars, "funding": fund}), encoding="utf-8")
+            os.replace(tmp, folder / f"{sym}.json")
         last = max(int(k) for k in bars) if bars else 0
         print(f"{sym}: bars={len(bars)} funding={len(fund)} last={last}", flush=True)
     print("bootstrap done")

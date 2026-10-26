@@ -8,12 +8,14 @@ are labels, not features.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
 
 STATE = Path.home() / ".cursor" / "bybit-top25-scan-state"
 LAB = Path(__file__).resolve().parent
+OUT = Path(os.environ.get("OUTPUT_DIR", str(LAB)))
 HOUR = 3_600_000
 DAY = 24 * HOUR
 FEE = 0.0015
@@ -28,11 +30,14 @@ N_FEAT = 16
 
 def load_coin(sym: str):
     bars, vols, fund = {}, {}, {}
-    for base in (LAB / "data", STATE / "pairs_cache"):
+    for base in (LAB / "data", STATE / "pairs_cache", OUT / "data"):
         bp = base / f"{sym}.json"
         if not bp.exists():
             continue
-        blob = json.loads(bp.read_text(encoding="utf-8"))
+        try:
+            blob = json.loads(bp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
         for k, v in (blob.get("bars") or {}).items():
             bars[int(k)] = float(v[0])
             vols[int(k)] = float(v[1])

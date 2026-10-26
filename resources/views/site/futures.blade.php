@@ -183,7 +183,7 @@
       <div id="realTableSection">
         <h2 style="color:#10b981">
           <span>Реальные закрытые сделки на счёте Bybit — <span class="periodName">Квартал</span></span>
-          <span class="muted" style="text-transform:none">Точка старта стратегии Шварца: новых входов по стратегии на счёте пока 0</span>
+          <span class="muted" style="text-transform:none">Прямая выгрузка закрытых позиций со счёта Bybit</span>
         </h2>
         @foreach ($periods as $p)
         @php $rClosed = $p['real_account']['closed_trades'] ?? []; @endphp
@@ -194,14 +194,17 @@
           <table>
             <tr><th>Открытие → Закрытие</th><th>Пара</th><th>Сторона</th><th>Цена входа → выхода</th><th>Объём (Плечо)</th><th>Источник</th><th>Реальный PnL ($)</th><th>Баланс счёта</th></tr>
             @foreach ($rClosed as $rc)
-            @php $rp = $rc['pnl_usd'] ?? 0; @endphp
+            @php
+              $rp = $rc['pnl_usd'] ?? 0;
+              $isSchw = !empty($rc['is_schwartz']);
+            @endphp
             <tr class="{{ $rp >= 0 ? 'matched' : 'missed' }}">
               <td>{{ substr($rc['time'], 5) }} → {{ substr($rc['exit_time'], 5) }}</td>
               <td><b>{{ $rc['coin'] }}</b></td>
               <td class="{{ ($rc['side'] ?? 1) == 1 ? 'ok' : 'bad' }}">{{ ($rc['side'] ?? 1) == 1 ? 'LONG' : 'SHORT' }}</td>
               <td>{{ $rc['entry_price'] }} → {{ $rc['exit_price'] }}</td>
               <td>{{ $rc['qty'] }} <span class="muted">({{ $rc['leverage'] }}x)</span></td>
-              <td><span class="badge-rule">Прежние сделки счёта</span></td>
+              <td><span class="badge-rule {{ $isSchw ? 'ok' : '' }}">{{ $isSchw ? '✓ По Шварцу 7x' : 'Прежние сделки счёта' }}</span></td>
               <td class="{{ $rp >= 0 ? 'ok' : 'bad' }}">{{ $rp >= 0 ? '+$' : '-$' }}{{ number_format(abs($rp), 2) }} ({{ ($rc['pnl_pct'] ?? 0) >= 0 ? '+' : '' }}{{ number_format($rc['pnl_pct'] ?? 0, 2) }}%)</td>
               <td style="font-weight:700">${{ number_format($rc['eq_after'] ?? $balance, 2) }}</td>
             </tr>

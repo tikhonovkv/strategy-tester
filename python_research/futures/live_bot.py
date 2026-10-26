@@ -83,12 +83,52 @@ class FuturesTrader:
                     "side": 1 if str(r.get("side")) == "Buy" else -1,
                     "size": size,
                     "entry": float(r.get("avgPrice") or 0),
+                    "updated": int(r.get("updatedTime") or r.get("createdTime") or 0),
                     "created": int(r.get("createdTime") or r.get("updatedTime") or 0),
                 }
             return out
         except Exception as exc:
             print("  positions err:", exc)
             return {}
+
+    def recover_open_ts(self, symbol: str, side: int, target_size: float, now_ms: int) -> int:
+        """Recover the actual entry timestamp of the currently open position from Bybit executions
+        by walking backwards until cumulative entry fills reach target_size. Never uses slot createdTime!
+        """
+        if not self.has_keys():
+            return now_ms
+        want_side = "Buy" if side == 1 else "Sell"
+        try:
+            d = self.client.private_get(
+                "/v5/execution/list",
+                {
+                    "category": "linear",
+                    "symbol": symbol,
+                    "limit": "100",
+                    "startTime": str(now_ms - 5 * 86400000),
+                    "endTime": str(now_ms),
+                },
+            )
+            rows = sorted(
+                (d.get("result") or {}).get("list") or [],
+                key=lambda x: int(x.get("execTime") or 0),
+                reverse=True,
+            )
+            acc = 0.0
+            first_ts = now_ms
+            for r in rows:
+                if str(r.get("side")) == want_side:
+                    q = float(r.get("execQty") or 0)
+                    ts = int(r.get("execTime") or 0)
+                    if q > 0 and ts > 0:
+                        acc += q
+                        first_ts = ts
+                        if acc >= target_size * 0.95:
+                            break
+            return first_ts
+        except Exception as exc:
+            print("  recover_open_ts err:", symbol, exc)
+            return now_ms
 
     def set_leverage(self, symbol: str, leverage: float):
         try:
@@ -155,20 +195,23 @@ def state_path() -> Path:
 
 
 def load_state() -> dict:
-    path = state_path()
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    for d in (OUT, LAB):
+        path = d / "futures_position_state.json"
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and data:
+                    return data
+            except Exception:
+                pass
+    return {}
 
 
 def save_state(state: dict) -> None:
     for d in {LAB, OUT}:
-        (d / "futures_position_state.json").write_text(
-            json.dumps(state, ensure_ascii=False), encoding="utf-8"
-        )
+        tmp = d / "futures_position_state.json.tmp"
+        tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, d / "futures_position_state.json")
 
 
 def main():
@@ -242,9 +285,9 @@ def main():
         ],
     }
     for d in {LAB, OUT}:
-        (d / "futures_signals.json").write_text(
-            json.dumps(sig_payload, ensure_ascii=False), encoding="utf-8"
-        )
+        tmp = d / "futures_signals.json.tmp"
+        tmp.write_text(json.dumps(sig_payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, d / "futures_signals.json")
 
     print(
         "[{}] USDT free={:.2f} open={} signals={} BTC={:.1f} ({})".format(
@@ -257,17 +300,37 @@ def main():
         return
 
     # 1. Manage open positions according to Schwartz rules
+    # Clean stale state entries for symbols that are no longer open on the exchange
+    for stale_sym in list(state.keys()):
+        if stale_sym not in pos:
+            state.pop(stale_sym, None)
+
     for sym, p in list(pos.items()):
         st = state.get(sym) or {}
-        opened = int(st.get("opened") or p["created"] or now)
-        held_h = (now - opened) / 3600000.0
+        s_coin = series.get(sym)
+        series_atr = float(s_coin["atr1h"][-1]) if s_coin and len(s_coin["atr1h"]) else 0.008
+        if not st.get("opened") or int(st.get("side") or p["side"]) != p["side"]:
+            rec_ts = trader.recover_open_ts(sym, p["side"], p["size"], now)
+            st = {
+                "opened": rec_ts,
+                "entry_px": p["entry"],
+                "base_qty": st.get("base_qty") or p["size"],
+                "atr": float(st.get("atr") or series_atr),
+                "side": p["side"],
+                "pyr_done": bool(st.get("pyr_done", False)),
+                "tp1_done": bool(st.get("tp1_done", False)),
+                "tp2_done": bool(st.get("tp2_done", False)),
+            }
+            state[sym] = st
+            print(f"  RECOVERED STATE {sym} opened={rec_ts} ({round((now - rec_ts)/3600000.0, 1)}h ago)", flush=True)
+        opened = int(st["opened"])
+        held_h = max(0.0, (now - opened) / 3600000.0)
         entry_px = float(p["entry"] or st.get("entry_px") or 0.0)
-        atr = float(st.get("atr") or 0.008)
+        atr = float(st.get("atr") or series_atr)
         cur_px = trader.price(sym)
         if cur_px <= 0 or entry_px <= 0:
             continue
         move = p["side"] * (cur_px / entry_px - 1.0)
-        s_coin = series.get(sym)
         ema240_now = float(s_coin["ema240"][-1]) if s_coin else entry_px
 
         # Check exits: hard_stop and end_96h on every 5m tick;
@@ -289,9 +352,14 @@ def main():
         if should_close:
             print(f"  CLOSE {sym} ({close_reason}) held={held_h:.1f}h move={move*100:+.2f}%", flush=True)
             if live:
-                trader.close_position(sym, p)
+                try:
+                    trader.close_position(sym, p)
+                except Exception as exc:
+                    print(f"  CLOSE {sym} order failed: {exc}", flush=True)
+                    continue
             state.pop(sym, None)
             pos.pop(sym, None)
+            save_state(state)
             continue
 
         # Check Pyramid add (+50% of initial size at +2.0 ATR)
@@ -310,6 +378,7 @@ def main():
             st["pyr_done"] = True
             st["pyr_px"] = cur_px
             state[sym] = st
+            save_state(state)
             print(f"  PYRAMID (+2.0 ATR) {sym} added 50% qty={q_pyr} at {cur_px}", flush=True)
 
         # Check Tranche TP1 (20% at +3.0 ATR) and TP2 (15% at +5.5 ATR)
@@ -323,6 +392,7 @@ def main():
                     continue
             st["tp1_done"] = True
             state[sym] = st
+            save_state(state)
             print(f"  TP1 (3.0 ATR) {sym} closed 20% qty={q_tp1}", flush=True)
 
         if not st.get("tp2_done") and move >= 5.5 * atr:
@@ -335,6 +405,7 @@ def main():
                     continue
             st["tp2_done"] = True
             state[sym] = st
+            save_state(state)
             print(f"  TP2 (5.5 ATR) {sym} closed 15% qty={q_tp2}", flush=True)
 
     # 2. Open new positions ONLY on the hourly candle close check
@@ -385,7 +456,8 @@ def main():
             "tp1_done": False,
             "tp2_done": False,
         }
-        pos[sym] = {"side": s["side"], "size": qty, "entry": px, "created": now}
+        pos[sym] = {"side": s["side"], "size": qty, "entry": px, "updated": now}
+        save_state(state)
 
     save_state(state)
 

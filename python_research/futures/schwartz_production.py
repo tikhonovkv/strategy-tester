@@ -35,6 +35,32 @@ SHORT_NAME = {
     "XRPUSDT": "XRP", "BNBUSDT": "BNB", "ADAUSDT": "ADA",
     "AVAXUSDT": "AVAX", "LINKUSDT": "LINK", "SUIUSDT": "SUI",
 }
+LOT_STEP = {
+    "BTCUSDT": 0.001, "ETHUSDT": 0.01, "SOLUSDT": 0.1,
+    "XRPUSDT": 0.1, "BNBUSDT": 0.01, "ADAUSDT": 1.0,
+    "AVAXUSDT": 0.1, "LINKUSDT": 0.1, "SUIUSDT": 10.0,
+}
+TAKER_FEE = 0.0011  # Bybit VIP0 round-trip taker fee (0.055% x 2)
+def fit_lot_qty(sym: str, qty: float) -> float:
+    step = LOT_STEP.get(sym, 0.01)
+    if step <= 0:
+        return round(qty, 4)
+    q = int(qty / step) * step
+    dec = len("{:.8f}".format(step).rstrip("0").split(".")[1]) if "." in "{:.8f}".format(step).rstrip("0") else 0
+    return round(q, dec)
+LOT_STEP = {
+    "BTCUSDT": 0.001, "ETHUSDT": 0.01, "SOLUSDT": 0.1,
+    "XRPUSDT": 0.1, "BNBUSDT": 0.01, "ADAUSDT": 1.0,
+    "AVAXUSDT": 0.1, "LINKUSDT": 0.1, "SUIUSDT": 10.0,
+}
+TAKER_FEE = 0.0011  # Bybit VIP0 round-trip taker fee (0.055% x 2)
+def fit_lot_qty(sym: str, qty: float) -> float:
+    step = LOT_STEP.get(sym, 0.01)
+    if step <= 0:
+        return round(qty, 4)
+    q = int(qty / step) * step
+    dec = len("{:.8f}".format(step).rstrip("0").split(".")[1]) if "." in "{:.8f}".format(step).rstrip("0") else 0
+    return round(q, dec)
 def iso(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")
 def half_year_returns(curve: list, start_equity: float = 2000.0) -> dict:
@@ -130,6 +156,10 @@ def build_tranche_candidates() -> tuple[list[dict], dict]:
         reason = "end"
         pyr_triggered = False
         pyr_entry_move = 0.0
+        tp1_done = False
+        tp1_move = 0.0
+        tp2_done = False
+        tp2_move = 0.0
         for j in range(i + 1, min(len(s["px"]), i + 96)):
             if int(s["close_ts"][j]) != int(s["close_ts"][j - 1]) + HOUR:
                 exit_idx = j - 1
@@ -140,9 +170,6 @@ def build_tranche_candidates() -> tuple[list[dict], dict]:
             min_move = min(min_move, move)
             peak_move = max(peak_move, move)
             h = j - i
-            if not pyr_triggered and move >= 2.0 * atr:
-                pyr_triggered = True
-                pyr_entry_move = move
             if h <= 4 and move <= -0.8 * atr:
                 exit_idx = j
                 reason = "fast_bail"
@@ -152,14 +179,23 @@ def build_tranche_candidates() -> tuple[list[dict], dict]:
                 reason = "hard_stop"
                 break
             be_floor = 1.15 * atr if pyr_triggered else 0.4 * atr
-            if peak_move >= 3.0 * atr and move <= be_floor:
+            if tp1_done and move <= be_floor:
                 exit_idx = j
-                reason = "breakeven"
+                reason = "tp_scale+be"
                 break
             if (side == 1 and cpx < s["ema240"][j]) or (side == -1 and cpx > s["ema240"][j]):
                 exit_idx = j
                 reason = "ema10_exit"
                 break
+            if not pyr_triggered and move >= 2.0 * atr:
+                pyr_triggered = True
+                pyr_entry_move = move
+            if not tp1_done and move >= 3.0 * atr:
+                tp1_done = True
+                tp1_move = move
+            if not tp2_done and move >= 5.5 * atr:
+                tp2_done = True
+                tp2_move = move
             exit_idx = j
         exit_px = float(s["px"][exit_idx])
         exit_ts = int(s["close_ts"][exit_idx])
@@ -168,17 +204,24 @@ def build_tranche_candidates() -> tuple[list[dict], dict]:
         paid = float(f_rate[lo:hi].sum()) if hi > lo else 0.0
         f_adj = (-paid if side == 1 else paid)
         raw_end = side * (exit_px / entry_px - 1.0)
-        # Single-exit PnL: strictly derived from entry_px -> exit_px.
-        # If pyr_triggered, only keep pyramid leg if exit_px > pyr_entry_px (else pyramid leg stopped at its entry)
-        net = raw_end + f_adj - FEE
-        if pyr_triggered:
-            if raw_end > pyr_entry_move:
-                pyr_net = 0.5 * ((raw_end - pyr_entry_move) - FEE)
-            else:
-                pyr_net = -0.5 * FEE
-        else:
-            pyr_net = 0.0
-        # Ensure if raw_end < 0 then net + pyr_net < 0, and if raw_end > FEE then net > 0
+        # Exact live tranche decomposition (matches live_bot.py: 20% at TP1, 15% of rem at TP2, rest at exit_px)
+        rem_w = 1.0
+        base_gross = 0.0
+        pyr_gross = 0.0
+        if tp1_done:
+            w1 = 0.20 * rem_w
+            base_gross += w1 * tp1_move
+            pyr_gross += w1 * (tp1_move - pyr_entry_move) if pyr_triggered else 0.0
+            rem_w -= w1
+        if tp2_done:
+            w2 = 0.15 * rem_w
+            base_gross += w2 * tp2_move
+            pyr_gross += w2 * (tp2_move - pyr_entry_move) if pyr_triggered else 0.0
+            rem_w -= w2
+        base_gross += rem_w * raw_end
+        pyr_gross += rem_w * (raw_end - pyr_entry_move) if pyr_triggered else 0.0
+        net = base_gross + f_adj - TAKER_FEE
+        pyr_net = 0.50 * (pyr_gross + 0.5 * f_adj - TAKER_FEE) if pyr_triggered else 0.0
         p_lo = max(0, i - 2)
         p_hi = min(len(s["px"]) - 1, exit_idx + 2)
         path_px = [round(float(s["px"][k]), 4) for k in range(p_lo, p_hi + 1)]
@@ -198,7 +241,7 @@ def build_tranche_candidates() -> tuple[list[dict], dict]:
             "min_move": float(min_move),
             "atr": float(atr),
             "reason": reason,
-            "pyr": bool(pyr_triggered and raw_end > pyr_entry_move),
+            "pyr": bool(pyr_triggered),
         })
     sig_hist = {s: deque(maxlen=6) for s in ALTS_7}
     sig_lstreak = {s: 0 for s in ALTS_7}
@@ -256,7 +299,7 @@ def simulate_window(
         for p in open_pos:
             if p["exit_ts"] <= t:
                 e = p["e"]
-                tot_net = e["net"] + pyr_mult * e["pyr_net"]
+                tot_net = e["net"] + p["pyr_scale"] * e["pyr_net"]
                 if e["min_move"] * p["eff_lev"] <= -1.0:
                     pnl = -p["margin"]
                 else:
@@ -274,7 +317,7 @@ def simulate_window(
                 if peak > 0:
                     max_dd = max(max_dd, (peak - eq) / peak)
                 contrib = pnl / max(p["eq_entry"], 1.0)
-                qty = round((p["margin"] * p["eff_lev"]) / max(e["entry_px"], 1e-8), 4)
+                qty = p["qty"]
                 trades.append({
                     "t": int(e["t"]),
                     "exit_ts": int(e["exit_ts"]),
@@ -296,7 +339,7 @@ def simulate_window(
                     "contrib": round(float(contrib), 6),
                     "eq": round(float(eq), 2),
                     "reason": e["reason"],
-                    "pyr": bool(e["pyr"]),
+                    "pyr": bool(e["pyr"] and p["pyr_scale"] > 0),
                     "path": e["path"],
                 })
                 curve.append((int(t), round(float(eq), 2)))
@@ -328,15 +371,30 @@ def simulate_window(
                 mult *= 1.15
             stop_dist = max(1.6 * e["atr"], 0.008)
             target_notional = (eq * risk_pct * mult) / stop_dist
-            margin = min(target_notional / lev, eq * max_margin_frac, free * 0.95)
-            if margin < 15.0:
+            raw_margin = min(target_notional / lev, eq * max_margin_frac, free * 0.90)
+            if raw_margin < 15.0:
+                continue
+            qty = fit_lot_qty(e["sym"], (raw_margin * lev) / max(e["entry_px"], 1e-8))
+            if qty <= 0:
+                continue
+            margin = (qty * e["entry_px"]) / lev
+            if margin < 15.0 or margin > free:
                 continue
             free -= margin
             reserved += margin
+            # Check if free margin remains for the +50% pyramid leg (just like live_bot.py)
+            rem_after_open = max(0.0, free)
+            need_pyr = 0.50 * margin
+            if e["pyr"] and rem_after_open >= 10.0:
+                pyr_scale = min(1.0, (rem_after_open * 0.90) / max(need_pyr, 1e-8))
+            else:
+                pyr_scale = 0.0
             open_pos.append({
                 "e": e,
                 "exit_ts": e["exit_ts"],
+                "qty": qty,
                 "margin": margin,
+                "pyr_scale": pyr_scale,
                 "eff_lev": lev,
                 "eq_entry": eq,
             })

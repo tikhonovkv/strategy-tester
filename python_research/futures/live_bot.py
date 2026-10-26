@@ -362,24 +362,32 @@ def main():
             save_state(state)
             continue
 
-        # Check Pyramid add (+50% of initial size at +2.0 ATR)
+        # Check Pyramid add (+50% of initial size at +2.0 ATR), respecting free margin (rem_free)
         if not st.get("pyr_done") and move >= 2.0 * atr:
             base_qty = float(st.get("base_qty") or p["size"])
             q_pyr = round(base_qty * 0.50, 4)
             lot = float((trader.instrument(sym).get("lotSizeFilter") or {}).get("qtyStep") or 0)
             if lot > 0:
                 q_pyr = int(q_pyr / lot) * lot
-            if q_pyr > 0 and live:
-                try:
-                    trader.market_order(sym, p["side"], q_pyr, reduce_only=False)
-                except Exception as exc:
-                    print(f"  PYRAMID {sym} order failed: {exc}", flush=True)
-                    continue
-            st["pyr_done"] = True
-            st["pyr_px"] = cur_px
-            state[sym] = st
-            save_state(state)
-            print(f"  PYRAMID (+2.0 ATR) {sym} added 50% qty={q_pyr} at {cur_px}", flush=True)
+            used_now = sum((pos_v["size"] * pos_v["entry"]) / max(leverage, 1.0) for pos_v in pos.values())
+            avail_pyr = max(0.0, free - used_now)
+            need_pyr_margin = (q_pyr * cur_px) / max(leverage, 1.0)
+            if need_pyr_margin > avail_pyr * 0.90 and cur_px > 0:
+                q_pyr = (avail_pyr * 0.90 * leverage) / cur_px
+                if lot > 0:
+                    q_pyr = int(q_pyr / lot) * lot
+            if q_pyr > 0 and (q_pyr * cur_px) / max(leverage, 1.0) >= 10.0:
+                if live:
+                    try:
+                        trader.market_order(sym, p["side"], q_pyr, reduce_only=False)
+                    except Exception as exc:
+                        print(f"  PYRAMID {sym} order failed: {exc}", flush=True)
+                        continue
+                st["pyr_done"] = True
+                st["pyr_px"] = cur_px
+                state[sym] = st
+                save_state(state)
+                print(f"  PYRAMID (+2.0 ATR) {sym} added 50% qty={q_pyr} at {cur_px}", flush=True)
 
         # Check Tranche TP1 (20% at +3.0 ATR) and TP2 (15% at +5.5 ATR)
         if not st.get("tp1_done") and move >= 3.0 * atr:

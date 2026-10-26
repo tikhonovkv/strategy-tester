@@ -410,6 +410,8 @@ def main():
 
     # 2. Open new positions ONLY on the hourly candle close check
     equity = free
+    used_margin = sum((p["size"] * p["entry"]) / max(leverage, 1.0) for p in pos.values())
+    rem_free = max(0.0, free - used_margin)
     for s in (sigs if hourly_close else []):
         if len(pos) >= max_conc:
             break
@@ -422,7 +424,7 @@ def main():
         atr = max(float(s["atr"]), 0.005)
         stop_dist = max(1.6 * atr, 0.008)
         target_notional = (equity * risk_pct) / stop_dist
-        margin = min(target_notional / leverage, equity * max_margin_frac, free * 0.90)
+        margin = min(target_notional / leverage, equity * max_margin_frac, rem_free * 0.90)
         if margin < 15.0:
             continue
         qty = margin * leverage / px
@@ -445,7 +447,13 @@ def main():
         )
         if live:
             trader.set_leverage(sym, leverage)
-            print("   order:", json.dumps(trader.market_order(sym, s["side"], qty))[:200], flush=True)
+            try:
+                resp = trader.market_order(sym, s["side"], qty)
+                print("   order:", json.dumps(resp)[:200], flush=True)
+            except Exception as exc:
+                print(f"  OPEN {sym} order failed: {exc}", flush=True)
+                continue
+        rem_free = max(0.0, rem_free - margin)
         state[sym] = {
             "opened": now,
             "entry_px": px,

@@ -109,13 +109,31 @@ class FuturesTrader:
         rows = (d.get("result") or {}).get("list") or []
         return rows[0] if rows else {}
 
+    def fit_qty(self, symbol: str, qty: float) -> str:
+        step = float((self.instrument(symbol).get("lotSizeFilter") or {}).get("qtyStep") or 0)
+        if step > 0:
+            qty = int(qty / step) * step
+            raw = "{:.8f}".format(step).rstrip("0")
+            decimals = len(raw.split(".")[1]) if "." in raw else 0
+            qty = round(qty, decimals)
+        else:
+            decimals = 4
+            qty = round(qty, 4)
+        if qty <= 0:
+            return ""
+        return "{:.{}f}".format(qty, decimals)
+
     def market_order(self, symbol: str, side: int, qty: float, reduce_only: bool = False):
+        qty_text = self.fit_qty(symbol, qty)
+        if not qty_text:
+            print("  skip order", symbol, "qty rounds to 0", flush=True)
+            return {"skipped": True, "qty": "0"}
         payload = {
             "category": "linear",
             "symbol": symbol,
             "side": "Buy" if side == 1 else "Sell",
             "orderType": "Market",
-            "qty": "{:.4f}".format(qty),
+            "qty": qty_text,
         }
         if reduce_only:
             payload["reduceOnly"] = True
@@ -284,7 +302,11 @@ def main():
             if lot > 0:
                 q_pyr = int(q_pyr / lot) * lot
             if q_pyr > 0 and live:
-                trader.market_order(sym, p["side"], q_pyr, reduce_only=False)
+                try:
+                    trader.market_order(sym, p["side"], q_pyr, reduce_only=False)
+                except Exception as exc:
+                    print(f"  PYRAMID {sym} order failed: {exc}", flush=True)
+                    continue
             st["pyr_done"] = True
             st["pyr_px"] = cur_px
             state[sym] = st
@@ -294,7 +316,11 @@ def main():
         if not st.get("tp1_done") and move >= 3.0 * atr:
             q_tp1 = round(p["size"] * 0.20, 4)
             if q_tp1 > 0 and live:
-                trader.market_order(sym, -p["side"], q_tp1, reduce_only=True)
+                try:
+                    trader.market_order(sym, -p["side"], q_tp1, reduce_only=True)
+                except Exception as exc:
+                    print(f"  TP1 {sym} order failed: {exc}", flush=True)
+                    continue
             st["tp1_done"] = True
             state[sym] = st
             print(f"  TP1 (3.0 ATR) {sym} closed 20% qty={q_tp1}", flush=True)
@@ -302,7 +328,11 @@ def main():
         if not st.get("tp2_done") and move >= 5.5 * atr:
             q_tp2 = round(p["size"] * 0.15, 4)
             if q_tp2 > 0 and live:
-                trader.market_order(sym, -p["side"], q_tp2, reduce_only=True)
+                try:
+                    trader.market_order(sym, -p["side"], q_tp2, reduce_only=True)
+                except Exception as exc:
+                    print(f"  TP2 {sym} order failed: {exc}", flush=True)
+                    continue
             st["tp2_done"] = True
             state[sym] = st
             print(f"  TP2 (5.5 ATR) {sym} closed 15% qty={q_tp2}", flush=True)

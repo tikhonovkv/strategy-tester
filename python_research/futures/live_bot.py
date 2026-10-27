@@ -6,9 +6,9 @@ Every hourly bar:
 1. Checks open positions against Schwartz exit rules:
    - fast_bail: if held <= 4h and move <= -0.8 * ATR -> close immediately.
    - hard_stop: if move <= -2.2 * ATR -> close immediately.
-   - tp1 (3.0 * ATR): take 20% profit and lock stop above entry (+0.5 * ATR).
-   - tp2 (5.5 * ATR): take 15% profit.
-   - pyramid (2.0 * ATR): add 50% size in winning direction once confirmed.
+   - After peak >= +3.0 ATR, the whole position closes if price falls back to the floor
+     (+1.15 ATR with a pyramid, otherwise +0.4 ATR). No partial take-profit.
+   - pyramid (2.0 * ATR): add 50% size in the winning direction once confirmed.
    - ema10_exit / 96h time stop: close runner when price crosses 10d EMA or reaches 96h.
 2. Evaluates new hourly signals from `scan_live_schwartz` (10d EMA + 48h EMA reclaim +
    BTC 10d EMA regime + non-crowded funding carry + causal coin rotation).
@@ -263,7 +263,7 @@ def main():
         "usdt_free": round(free, 2),
         "open_positions": len(pos),
         "mode": "LIVE" if (live and trader.has_keys()) else "DRY-RUN / MONITOR",
-        "strategy": "Schwartz Pitbull Championship 7x (TP1 3.0 ATR / TP2 5.5 ATR + 65% Runner + Pyramid)",
+        "strategy": "Schwartz Pitbull Championship 7x (полный объём до выхода, пирамида +50%)",
         "btc_price": round(btc_px, 2),
         "btc_ema10d": round(btc_ema10, 2),
         "btc_regime": btc_regime,
@@ -331,10 +331,15 @@ def main():
         if cur_px <= 0 or entry_px <= 0:
             continue
         move = p["side"] * (cur_px / entry_px - 1.0)
+        peak = max(float(st.get("peak_move") or 0.0), move)
+        if peak != float(st.get("peak_move") or 0.0):
+            st["peak_move"] = peak
+            state[sym] = st
+            save_state(state)
         ema240_now = float(s_coin["ema240"][-1]) if s_coin else entry_px
 
-        # Check exits: hard_stop and end_96h on every 5m tick;
-        # fast_bail, breakeven and ema10_exit ONLY on hourly close (prevents 5m wick shakeouts)
+        # Full size until one exit. Hard stop and the 96h limit on every 5m tick.
+        # Fast bail, breakeven and the 10d EMA only on the hourly close.
         be_floor = 1.15 * atr if st.get("pyr_done") else 0.4 * atr
         should_close = False
         close_reason = ""
@@ -344,8 +349,8 @@ def main():
             should_close, close_reason = True, "end_96h"
         elif hourly_close and held_h >= 0.8 and held_h <= 4.5 and move <= -0.8 * atr:
             should_close, close_reason = True, "fast_bail"
-        elif hourly_close and st.get("tp1_done") and move <= be_floor:
-            should_close, close_reason = True, "tp_scale+be"
+        elif hourly_close and peak >= 3.0 * atr and move <= be_floor:
+            should_close, close_reason = True, "breakeven"
         elif hourly_close and ((p["side"] == 1 and cur_px < ema240_now) or (p["side"] == -1 and cur_px > ema240_now)):
             should_close, close_reason = True, "ema10_exit"
 
@@ -388,33 +393,6 @@ def main():
                 state[sym] = st
                 save_state(state)
                 print(f"  PYRAMID (+2.0 ATR) {sym} added 50% qty={q_pyr} at {cur_px}", flush=True)
-
-        # Check Tranche TP1 (20% at +3.0 ATR) and TP2 (15% at +5.5 ATR)
-        if not st.get("tp1_done") and move >= 3.0 * atr:
-            q_tp1 = round(p["size"] * 0.20, 4)
-            if q_tp1 > 0 and live:
-                try:
-                    trader.market_order(sym, -p["side"], q_tp1, reduce_only=True)
-                except Exception as exc:
-                    print(f"  TP1 {sym} order failed: {exc}", flush=True)
-                    continue
-            st["tp1_done"] = True
-            state[sym] = st
-            save_state(state)
-            print(f"  TP1 (3.0 ATR) {sym} closed 20% qty={q_tp1}", flush=True)
-
-        if not st.get("tp2_done") and move >= 5.5 * atr:
-            q_tp2 = round(p["size"] * 0.15, 4)
-            if q_tp2 > 0 and live:
-                try:
-                    trader.market_order(sym, -p["side"], q_tp2, reduce_only=True)
-                except Exception as exc:
-                    print(f"  TP2 {sym} order failed: {exc}", flush=True)
-                    continue
-            st["tp2_done"] = True
-            state[sym] = st
-            save_state(state)
-            print(f"  TP2 (5.5 ATR) {sym} closed 15% qty={q_tp2}", flush=True)
 
     # 2. Open new positions ONLY on the hourly candle close check
     equity = free

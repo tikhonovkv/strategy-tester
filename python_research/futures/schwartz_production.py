@@ -496,8 +496,10 @@ def scan_live_schwartz(now_ms: int | None = None) -> tuple[list[dict], dict]:
         for k in range(1, n):
             ema48[k] = a48 * px[k] + (1.0 - a48) * ema48[k - 1]
         i = n - 1
+        while i > 240 and int(close_ts[i]) > now_ms:
+            i -= 1
         t = int(close_ts[i])
-        if now_ms - t > 2 * HOUR:
+        if t > now_ms or now_ms - t > 2 * HOUR:
             continue
         bi = btc_map.get(t)
         if bi is None or bi < 240:

@@ -386,6 +386,9 @@ function renderTrade(tr) {
   var path = tradePaths[id];
   var ctx = document.getElementById('mainChart');
   if (CHART) { CHART.destroy(); }
+  if (!path || path.length < 2) {
+    if (isFinite(entry) && isFinite(exit)) path = [entry, entry, entry, exit, exit, exit];
+  }
   if (path && path.length > 2) {
     var entryIdx = 2;
     var exitIdx = path.length - 3;

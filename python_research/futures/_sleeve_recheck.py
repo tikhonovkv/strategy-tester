@@ -56,6 +56,27 @@ def price_at(s, t):
     return float(s["px"][j])
 
 
+def chart_path(s, t0, t1, limit=24):
+    """Hourly closes from two bars before entry through two bars after exit."""
+    ts = s["close_ts"]
+    px = s["px"]
+    i0 = int(np.searchsorted(ts, int(t0)))
+    i1 = int(np.searchsorted(ts, int(t1), side="right")) - 1
+    if i0 < 0 or i0 >= len(px) or i1 < i0:
+        return []
+    lo = max(0, i0 - 2)
+    hi = min(len(px) - 1, i1 + 2)
+    idx = list(range(lo, hi + 1))
+    if len(idx) > limit:
+        head, tail = idx[:2], idx[-2:]
+        mid = idx[2:-2]
+        keep = limit - 4
+        step = (len(mid) - 1) / max(keep - 1, 1) if mid else 1
+        picked = [mid[min(len(mid) - 1, int(round(k * step)))] for k in range(keep)] if mid else []
+        idx = head + picked + tail
+    return [round(float(px[i]), 6) for i in idx]
+
+
 def funding_paid(s, t0, t1):
     f_ts, f_rate = s["f_ts"], s["f_rate"]
     lo = int(np.searchsorted(f_ts, t0, side="right"))
@@ -190,6 +211,7 @@ class SleeveBook:
                 continue
             ret = leg_ret(series[sym], pos["t0"], t, pos["side"])
             self.closed.append({
+                "path": chart_path(series[sym], pos["t0"], t),
                 "sym": sym,
                 "coin": sym.replace("USDT", ""),
                 "side": int(pos["side"]),

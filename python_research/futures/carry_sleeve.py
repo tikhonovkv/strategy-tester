@@ -329,11 +329,18 @@ def export_compare_book(cands, windows, end_ms: int) -> None:
             stamp = datetime.fromtimestamp(int(ts) / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")
             curve.append([stamp, round((float(eq) / 2000.0 - 1.0) * 100.0, 2)])
         trades = []
+        curve_pts = list(res.get("curve") or [])
+        seen = 0
+        eq = 2000.0
         for leg in res.get("sleeve_trades") or []:
             row = dict(leg)
             before = max(1.0, float(row.get("margin") or 1.0))
             row["pnl_pct"] = round(float(row.get("pnl_usd") or 0.0) / before * 100.0, 2)
-            row["eq"] = 2000.0
+            exit_ts = int(row.get("exit_ts") or 0)
+            while seen < len(curve_pts) and int(curve_pts[seen][0]) <= exit_ts:
+                eq = float(curve_pts[seen][1])
+                seen += 1
+            row["eq"] = round(eq, 2)
             trades.append(row)
         payload[tag] = {
             "return_pct": res["ret"],

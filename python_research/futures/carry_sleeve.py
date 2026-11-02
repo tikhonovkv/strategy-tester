@@ -72,7 +72,7 @@ class CarrySleeve:
 
     def series(self):
         if self._series is None:
-            self._series = st._load_universe()
+            self._series = st._load_sleeve_universe()
         return self._series
 
     def book(self, state) -> dict:
@@ -317,7 +317,7 @@ def export_compare_book(cands, windows, end_ms: int) -> None:
     import _sleeve_recheck as rec
     import schwartz_trader as trader
 
-    series = trader._load_universe()
+    series = trader._load_sleeve_universe()
     syms = list(series.keys())
     payload = {}
     for tag, start in windows:

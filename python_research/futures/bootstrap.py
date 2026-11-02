@@ -82,21 +82,27 @@ def load_existing(sym):
 
 def main():
     now = int(time.time() * 1000)
-    horizon = now - 550 * 86400000
+    history_start = 1640995200000  # 2022-01-01 UTC
     for sym in COINS:
         blob = load_existing(sym)
         bars = blob.get("bars") or {}
         fund = blob.get("funding") or {}
         if bars:
-            bar_start = max(horizon, max(int(k) for k in bars) - 2 * HOUR)
+            first = min(int(k) for k in bars)
+            last = max(int(k) for k in bars)
+            if first > history_start + 2 * HOUR:
+                bars.update(fetch_bars(sym, history_start, first))
+            bars.update(fetch_bars(sym, last - 2 * HOUR, now))
         else:
-            bar_start = horizon
+            bars.update(fetch_bars(sym, history_start, now))
         if fund:
-            fund_start = max(horizon, max(int(k) for k in fund) - 86400000)
+            first_f = min(int(k) for k in fund)
+            last_f = max(int(k) for k in fund)
+            if first_f > history_start:
+                fund.update(fetch_funding(sym, history_start, first_f))
+            fund.update(fetch_funding(sym, last_f - 86400000, now))
         else:
-            fund_start = horizon
-        bars.update(fetch_bars(sym, bar_start, now))
-        fund.update(fetch_funding(sym, fund_start, now))
+            fund.update(fetch_funding(sym, history_start, now))
         for folder in {DATA, SEED_DATA}:
             folder.mkdir(parents=True, exist_ok=True)
             tmp = folder / f"{sym}.json.tmp"

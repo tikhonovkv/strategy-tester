@@ -71,6 +71,23 @@ def _load_universe():
     return series
 
 
+def _load_sleeve_universe():
+    """Coins the basket can rank. A coin may start after 2024."""
+    series = {}
+    for sym in MAJORS:
+        try:
+            s = build_hourly_series(sym)
+        except Exception:
+            continue
+        if len(s["px"]) < 400 or len(s["f_ts"]) < 30:
+            continue
+        series[sym] = s
+    sp.LOT_STEP.update(EXTRA_LOT)
+    for sym in series:
+        SHORT_NAME.setdefault(sym, sym.replace("USDT", ""))
+    return series
+
+
 def _exit_trade(s, i: int, side: int) -> dict | None:
     px = s["px"]
     n = len(px)

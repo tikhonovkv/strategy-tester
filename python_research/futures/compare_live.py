@@ -216,7 +216,7 @@ def build_real_equity_curve(closed_pnl: list[dict], wallet_now: float, cut_ts: i
                     matched_bt = True
                     break
         schwartz_names = {"ETH", "SOL", "XRP", "ADA", "AVAX", "LINK", "SUI"}
-        c["is_sleeve"] = c["coin"] not in schwartz_names and abs(float(c.get("leverage") or 0) - 1.0) < 0.2
+        c["is_sleeve"] = c["coin"] not in schwartz_names and float(c.get("leverage") or 0) <= 3.5
         c["is_schwartz"] = (not c["is_sleeve"]) and bool(
             matched_bt or (c["created_ts"] >= 1792713600000 and abs(c.get("leverage", 0) - 7.0) < 0.5)
         )
@@ -376,7 +376,7 @@ def render_html(periods):
         "periods": jperiods,
         "wallet_usdt": wallet_now,
         "cron_schedule": "Каждые 5 минут — сверка счёта Bybit и контроль открытых позиций; каждый час (:02) — докачка свечей и вход по новым сигналам",
-        "strategy": "Шварц 7x и корзина 1x",
+        "strategy": "Шварц 7x + спящая корзина 3x (вкл. при паузе ≥5д)",
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
     for target_dir in {LAB, OUT}:

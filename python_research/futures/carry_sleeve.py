@@ -1,9 +1,12 @@
 ﻿# -*- coding: utf-8 -*-
-"""1x carry/momentum sleeve the one-way Bybit account can actually hold.
+"""3x drought-mode carry/momentum sleeve for the one-way Bybit account.
 
-Three longs and three shorts, refreshed every 48 hours, with a -3.0% basket
-stop-loss checked every 5 minutes. The basket never includes BTC or the seven
-Schwartz alts, so a sleeve leg cannot net into a Schwartz position.
+Turns ON only when Schwartz 7x has been flat for >= 5 days and had <= 1 trade
+in the last 14 days (flat-market regime like 2024).
+Deploys at 3x gross leverage (0.5x equity per leg across 3 longs and 3 shorts,
+refreshed every 48 hours) with a -2.5% unlevered spread stop (-7.5% of margin)
+checked every 5 minutes, plus a 15% adverse price stop on Bybit per leg.
+Closes immediately as soon as Schwartz 7x opens a trade.
 """
 from __future__ import annotations
 
@@ -14,7 +17,11 @@ import schwartz_trader as st
 
 HOLD_MS = 48 * 3600 * 1000
 MIN_NOTIONAL = 15.0
-BASKET_STOP = 0.030  # Close all 6 legs if combined basket PnL reaches -3.0%
+SLEEVE_LEV = 3.0
+UNLEV_STOP = 0.025  # -2.5% unlevered basket move = -7.5% of margin at 3x
+QUIET_DAYS = 5.0
+MAX_RECENT_TRADES = 1
+RECENT_WINDOW_D = 14.0
 BANNED = set(sp.ALTS_7) | {"BTCUSDT"}
 
 
@@ -29,7 +36,7 @@ def _idx_at(series_row, t):
 
 
 def target_weights(series, syms, t, exclude=()):
-    """Long the 3 leaders and short the 3 laggards. Gross exposure is 1.0."""
+    """Long the 3 leaders and short the 3 laggards. Weights sum to 1.0 gross before leverage."""
     banned = set(exclude) | BANNED
     rows = []
     for sym in syms:
@@ -94,8 +101,33 @@ class CarrySleeve:
         total = 0.0
         for sym, leg in self.book(state)["legs"].items():
             px = self._price(sym, leg)
-            total += abs(float(leg.get("qty") or 0.0)) * px
+            total += abs(float(leg.get("qty") or 0.0)) * px / max(SLEEVE_LEV, 1.0)
         return total
+
+    def is_drought(self, state, schwartz_open_count: int, now_ms: int) -> tuple[bool, float, int]:
+        """Return (drought_ok, quiet_days, recent_14d_count)."""
+        if schwartz_open_count > 0:
+            return False, 0.0, schwartz_open_count
+        closes = state.get("_closes")
+        if not isinstance(closes, list) or not closes:
+            return True, 999.0, 0
+        last_ts = max(int(r.get("ts") or 0) for r in closes)
+        quiet_d = max(0.0, (int(now_ms) - last_ts) / 86400000.0) if last_ts > 0 else 999.0
+        recent_cnt = sum(
+            1 for r in closes
+            if int(now_ms) - int(r.get("ts") or 0) <= RECENT_WINDOW_D * 86400000.0
+        )
+        ok = (quiet_d >= QUIET_DAYS) and (recent_cnt <= MAX_RECENT_TRADES)
+        return ok, round(quiet_d, 1), recent_cnt
+
+    def flatten_all(self, state, reason: str = "schwartz_active") -> bool:
+        legs = self.book(state)["legs"]
+        if not legs:
+            return False
+        print(f"  SLEEVE closing all {len(legs)} legs ({reason})", flush=True)
+        for sym in list(legs):
+            self._flatten(sym, legs)
+        return True
 
     def reconcile(self, state, exchange_pos: dict) -> None:
         """Trust the exchange size and average entry price for legs this sleeve opened."""
@@ -113,12 +145,12 @@ class CarrySleeve:
                 legs[sym]["px"] = float(ex["entry"])
 
     def check_stop(self, state, now_ms: int) -> bool:
-        """Close all sleeve legs if combined basket PnL reaches -3.0% of entry notional."""
+        """Close all sleeve legs if combined unlevered basket move reaches -2.5% (-7.5% of margin at 3x)."""
         book = self.book(state)
         legs = book["legs"]
         if not legs:
             return False
-        total_entry = 0.0
+        total_notional = 0.0
         unreal_pnl = 0.0
         for sym, leg in list(legs.items()):
             qty = abs(float(leg.get("qty") or 0.0))
@@ -128,15 +160,15 @@ class CarrySleeve:
             if qty <= 0 or entry_px <= 0 or cur_px <= 0:
                 continue
             entry_notional = qty * entry_px
-            total_entry += entry_notional
+            total_notional += entry_notional
             unreal_pnl += side * qty * (cur_px - entry_px)
-        if total_entry <= MIN_NOTIONAL:
+        if total_notional <= MIN_NOTIONAL:
             return False
-        ret = unreal_pnl / total_entry
-        if ret > -BASKET_STOP:
+        unlev_ret = unreal_pnl / total_notional
+        if unlev_ret > -UNLEV_STOP:
             return False
         print(
-            f"  SLEEVE STOP ({ret*100:+.2f}% <= -{BASKET_STOP*100:.1f}%) closing {len(legs)} legs (pnl=${unreal_pnl:+.2f})",
+            f"  SLEEVE STOP (spread {unlev_ret*100:+.2f}% <= -{UNLEV_STOP*100:.1f}%, eq {unlev_ret*SLEEVE_LEV*100:+.2f}%) closing {len(legs)} legs (pnl=${unreal_pnl:+.2f})",
             flush=True,
         )
         for sym in list(legs):
@@ -146,11 +178,11 @@ class CarrySleeve:
         return True
 
     def arm_exchange_stops(self, state) -> bool:
-        """Put a Bybit stop on each leg. One leg moving 18% costs 3% of the basket."""
+        """Put a Bybit stop on each leg at 15% adverse price move (2.5% * 6 legs)."""
         if not self.trader.live or not self.trader.has_keys():
             return False
         legs = self.book(state)["legs"]
-        adverse = BASKET_STOP * 6.0
+        adverse = UNLEV_STOP * 6.0
         changed = False
         for sym, leg in list(legs.items()):
             entry = float(leg.get("px") or 0.0)
@@ -185,43 +217,23 @@ class CarrySleeve:
         return changed
 
     def release(self, state, need: float) -> float:
-        """Close part of the basket until about `need` USDT of margin comes back."""
+        """Close all or part of the basket when Schwartz needs margin."""
         if need <= 1.0:
             return 0.0
-        book = self.book(state)
-        legs = book["legs"]
-        notionals = []
-        for sym, leg in list(legs.items()):
-            px = self._price(sym, leg)
-            notion = abs(float(leg.get("qty") or 0.0)) * px
-            if notion > 1.0:
-                notionals.append((sym, notion, px))
-        gross = sum(row[1] for row in notionals)
-        if gross <= 1.0:
-            return 0.0
-        fraction = min(1.0, need / gross)
-        freed = 0.0
-        for sym, notion, px in notionals:
-            leg = legs[sym]
-            qty = abs(float(leg.get("qty") or 0.0))
-            cut = qty * fraction
-            if cut * px < 1.0:
-                continue
-            if self._order(sym, -int(leg["side"]), cut, reduce_only=True):
-                if not self.trader.live:
-                    freed += cut * px
-                    continue
-                left = qty - cut
-                if left * px < MIN_NOTIONAL:
-                    legs.pop(sym, None)
-                    freed += notion
-                else:
-                    leg["qty"] = left
-                    freed += cut * px
+        freed = self.margin(state)
+        self.flatten_all(state, reason="schwartz_margin")
         return freed
 
-    def park(self, state, deployable: float, now_ms: int) -> None:
-        """Put free USDT to work. Full ranking only every 48 hours."""
+    def park(self, state, deployable: float, now_ms: int, schwartz_open_count: int = 0) -> None:
+        """Deploy into the 3x basket ONLY when Schwartz is in a flat-market drought."""
+        drought_ok, quiet_d, recent_cnt = self.is_drought(state, schwartz_open_count, now_ms)
+        if not drought_ok:
+            if self.book(state)["legs"]:
+                self.flatten_all(state, reason=f"schwartz_active quiet={quiet_d}d recent14d={recent_cnt}")
+            else:
+                print(f"  SLEEVE standby (drought=off: quiet={quiet_d}d < {QUIET_DAYS}d or recent14d={recent_cnt} > {MAX_RECENT_TRADES})", flush=True)
+            return
+
         series = self.series()
         btc = series.get("BTCUSDT")
         asof = int(now_ms)
@@ -231,8 +243,8 @@ class CarrySleeve:
                 asof = last
         stale_h = (int(now_ms) - asof) / sp.HOUR
         weights_now = target_weights(series, list(series.keys()), asof)
-        book_txt = ", ".join(f"{sym}:{weight:+.2f}" for sym, weight in weights_now.items()) or "empty"
-        print(f"  SLEEVE book lag={stale_h:.1f}h {book_txt}", flush=True)
+        book_txt = ", ".join(f"{sym}:{weight * SLEEVE_LEV:+.2f}" for sym, weight in weights_now.items()) or "empty"
+        print(f"  SLEEVE 3x drought-mode lag={stale_h:.1f}h quiet={quiet_d}d {book_txt}", flush=True)
         if stale_h > 6.0:
             print("  SLEEVE skip orders, hourly cache is older than 6 hours", flush=True)
             return
@@ -242,49 +254,25 @@ class CarrySleeve:
         if not due and reb_ts > 0 and int(book.get("stopped_ts") or -1) == reb_ts:
             print("  SLEEVE waiting for next 48h slot after basket_stop", flush=True)
             return
+        if book["legs"] and not due:
+            return
         if deployable < MIN_NOTIONAL and not book["legs"]:
             return
-        if book["legs"] and not due:
-            self._scale_in(state, max(0.0, deployable))
-            return
-        weights = weights_now
-        self._rebalance(state, weights, max(0.0, deployable), int(now_ms))
+        self._rebalance(state, weights_now, max(0.0, deployable), int(now_ms))
         self.arm_exchange_stops(state)
-
-    def _scale_in(self, state, amount: float) -> None:
-        if amount < MIN_NOTIONAL:
-            return
-        book = self.book(state)
-        legs = book["legs"]
-        marked = []
-        for sym, leg in legs.items():
-            px = self._price(sym, leg)
-            notion = abs(float(leg.get("qty") or 0.0)) * px
-            if notion > 1.0:
-                marked.append((sym, notion, px))
-        base = sum(row[1] for row in marked)
-        if base <= 1.0:
-            return
-        for sym, notion, px in marked:
-            extra = amount * (notion / base)
-            if extra < MIN_NOTIONAL:
-                continue
-            leg = legs[sym]
-            qty = extra / max(px, 1e-8)
-            if self._order(sym, int(leg["side"]), qty, reduce_only=False) and self.trader.live:
-                leg["qty"] = abs(float(leg.get("qty") or 0.0)) + self._fit_qty(sym, qty)
 
     def _rebalance(self, state, weights: dict, deployable: float, now_ms: int) -> None:
         book = self.book(state)
         legs = book["legs"]
-        marked = 0.0
+        marked_margin = 0.0
         current = {}
         for sym, leg in list(legs.items()):
             px = self._price(sym, leg)
-            signed = int(leg.get("side") or 1) * abs(float(leg.get("qty") or 0.0)) * px
+            notional = abs(float(leg.get("qty") or 0.0)) * px
+            signed = int(leg.get("side") or 1) * notional
             current[sym] = signed
-            marked += abs(signed)
-        equity = marked + deployable
+            marked_margin += notional / max(SLEEVE_LEV, 1.0)
+        equity = marked_margin + deployable * 0.92
         if equity < MIN_NOTIONAL or not weights:
             for sym in list(legs):
                 self._flatten(sym, legs)
@@ -292,7 +280,7 @@ class CarrySleeve:
                 book["rebalance_ts"] = now_ms
                 book["stopped_ts"] = -1
             return
-        targets = {sym: w * equity for sym, w in weights.items()}
+        targets = {sym: w * SLEEVE_LEV * equity for sym, w in weights.items()}
         for sym in list(current):
             if sym not in targets:
                 self._flatten(sym, legs)
@@ -354,16 +342,17 @@ class CarrySleeve:
     def _isolated(self, sym) -> bool:
         if not self.trader.live or not self.trader.has_keys():
             return True
+        lev_str = str(int(SLEEVE_LEV))
         try:
-            self.trader.set_leverage(sym, 1.0)
+            self.trader.set_leverage(sym, SLEEVE_LEV)
             self.trader.client.private_post(
                 "/v5/position/switch-isolated",
                 {
                     "category": "linear",
                     "symbol": sym,
                     "tradeMode": 1,
-                    "buyLeverage": "1",
-                    "sellLeverage": "1",
+                    "buyLeverage": lev_str,
+                    "sellLeverage": lev_str,
                 },
             )
             return True
@@ -403,7 +392,7 @@ class CarrySleeve:
 
 
 def export_compare_book(cands, windows, end_ms: int) -> None:
-    """Write the sleeve legs, combined Schwartz trades, and unified equity curve."""
+    """Write the drought-mode 3x sleeve legs, Schwartz trades, and unified equity curve."""
     import json
     from datetime import datetime, timezone
 

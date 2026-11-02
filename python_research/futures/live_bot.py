@@ -398,7 +398,7 @@ def main():
             for sym, row in exchange_pos.items():
                 if sym in ALTS_7 or sym == "BTCUSDT":
                     continue
-                if abs(float(row.get("leverage") or 0) - 1.0) > 0.2:
+                if float(row.get("leverage") or 0) > 3.5:
                     continue
                 book["legs"][sym] = {
                     "side": int(row["side"]),
@@ -693,18 +693,7 @@ def main():
     if sleeve and hourly_close:
         trader.invalidate_account()
         rem_free = trader.available_margin()
-        buffer = 0.0
-        for sym, row in pos.items():
-            held = state.get(sym) or {}
-            if held.get("pyr_done"):
-                continue
-            base_qty = float(held.get("base_qty") or row["size"])
-            held_px = float(held.get("entry_px") or row["entry"])
-            held_atr = float(held.get("atr") or 0.0)
-            side = int(row["side"])
-            px_at_add = held_px * (1.0 + side * 2.0 * held_atr) if held_atr > 0 else held_px
-            buffer += 0.50 * base_qty * max(px_at_add, 0.0) / max(leverage, 1.0)
-        sleeve.park(state, max(0.0, rem_free - buffer), now)
+        sleeve.park(state, max(0.0, rem_free), now, schwartz_open_count=len(pos))
 
     save_state(state)
 

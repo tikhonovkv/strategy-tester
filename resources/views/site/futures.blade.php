@@ -153,7 +153,7 @@
 
     <div class="summary-box bt-box">
       <div>
-        <div class="s-title" style="color:#f59e0b">2. Эталон стратегии (Бэктест с $2,000)</div>
+        <div class="s-title" style="color:#f59e0b">2. Шварц и корзина (бэктест с $2,000)</div>
         <div class="muted" style="font-size:11px">Как отработала модель Шварца 7x за выбранный период</div>
       </div>
       <div class="s-metrics">
@@ -204,7 +204,7 @@
               <td class="{{ ($rc['side'] ?? 1) == 1 ? 'ok' : 'bad' }}">{{ ($rc['side'] ?? 1) == 1 ? 'LONG' : 'SHORT' }}</td>
               <td>{{ $rc['entry_price'] }} → {{ $rc['exit_price'] }}</td>
               <td>{{ $rc['qty'] }} <span class="muted">({{ $rc['leverage'] }}x)</span></td>
-              <td><span class="badge-rule {{ $isSchw ? 'ok' : '' }}">{{ $isSchw ? '✓ По Шварцу 7x' : 'Прежние сделки счёта' }}</span></td>
+              <td><span class="badge-rule {{ $isSchw ? 'ok' : '' }}">{{ $isSchw ? 'Шварц 7x' : (!empty($rc['is_sleeve']) ? 'Корзина 1x' : 'Вне бота') }}</span></td>
               <td class="{{ $rp >= 0 ? 'ok' : 'bad' }}">{{ $rp >= 0 ? '+$' : '-$' }}{{ number_format(abs($rp), 2) }} ({{ ($rc['pnl_pct'] ?? 0) >= 0 ? '+' : '' }}{{ number_format($rc['pnl_pct'] ?? 0, 2) }}%)</td>
               <td style="font-weight:700">${{ number_format($rc['eq_after'] ?? $balance, 2) }}</td>
             </tr>
@@ -218,7 +218,7 @@
       <!-- БЛОК 2: ТАБЛИЦА БЭКТЕСТА -->
       <div id="btTableSection" style="display:none">
         <h2 style="color:#f59e0b">
-          <span>Сделки модели в бэктесте (клик по строке открывает часовой график сделки) — <span class="periodName">Квартал</span></span>
+          <span>Сделки, которые бот должен открыть и закрыть — <span class="periodName">Квартал</span></span>
         </h2>
         @foreach ($periods as $p)
         <div class="bt-period-table" data-period="{{ $p['label'] }}" style="{{ $p['label'] === 'Квартал' ? '' : 'display:none' }}">
@@ -226,7 +226,7 @@
             <p class="muted">Нет сделок бэктеста за выбранный период.</p>
           @else
           <table>
-            <tr><th>Вход</th><th>Выход</th><th>Пара</th><th>Сторона</th><th>Цена входа → выхода</th><th>Маржа</th><th>Правило выхода</th><th>Статус</th><th>PnL бэктеста</th><th>Баланс ($2k старт)</th></tr>
+            <tr><th>Вход</th><th>Выход</th><th>Контур</th><th>Пара</th><th>Сторона</th><th>Цена входа → выхода</th><th>Маржа</th><th>Правило выхода</th><th>Статус</th><th>PnL</th><th>Баланс ($2k старт)</th></tr>
             @foreach ($p['trades'] as $t)
             @php
               $pnl = $t['pnl_pct'] ?? 0;
@@ -237,6 +237,7 @@
             <tr class="trade-row {{ $rowCls }}" data-id="{{ $tid }}" data-coin="{{ $t['coin'] }}" data-side="{{ $t['side'] }}" data-entry="{{ $t['entry_price'] }}" data-exit="{{ $t['exit_price'] }}" data-time="{{ $t['time'] }}" data-exittime="{{ $t['exit_time'] }}" data-pnl="{{ $pnl }}">
               <td>{{ substr($t['time'], 5) }}</td>
               <td>{{ substr($t['exit_time'] ?? '—', 5) }} <span class="muted">({{ $t['hold_h'] ?? 24 }}h)</span></td>
+              <td>{{ ($t['book'] ?? '') === 'sleeve' ? 'Корзина' : 'Шварц' }}</td>
               <td><b>{{ $t['coin'] }}</b>@if(!empty($t['pyr']))<span class="badge-pyr">+PYR</span>@endif</td>
               <td class="{{ ($t['side'] ?? 0) == 1 ? 'ok' : 'bad' }}">{{ ($t['side'] ?? 0) == 1 ? 'LONG' : 'SHORT' }}</td>
               <td>{{ $t['entry_price'] ?? '—' }} → {{ $t['exit_price'] ?? '—' }}</td>
@@ -350,7 +351,7 @@ function renderMain() {
       data: {
         labels: d.bt_labels,
         datasets: [{
-          label: 'Бэктест PnL (%)',
+          label: 'Шварц и корзина (%)',
           data: d.bt_pnl,
           borderColor: '#f59e0b',
           backgroundColor: 'rgba(245,158,11,0.12)',
@@ -371,7 +372,7 @@ function renderMain() {
         }
       }
     });
-    document.getElementById('chartTitle').textContent = '2. Расчётная кривая стратегии (Бэктест %) — ' + currentPeriod;
+    document.getElementById('chartTitle').textContent = '2. Шварц и корзина (%) — ' + currentPeriod;
   }
 }
 

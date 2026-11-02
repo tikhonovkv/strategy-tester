@@ -66,9 +66,25 @@ def load_backtest(tag: str):
                 "eq": tr.get("eq", 2000.0),
                 "reason": tr.get("reason", "end"),
                 "pyr": bool(tr.get("pyr", False)),
+                "book": "schwartz",
             })
         return trades, j
     return [], j
+
+
+def load_sleeve(tag: str) -> dict:
+    for base in (OUT, LAB):
+        path = base / "sleeve_compare.json"
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        row = data.get(tag) if isinstance(data, dict) else None
+        if isinstance(row, dict):
+            return row
+    return {}
 
 
 def fetch_live_executions_and_closed_pnl():
@@ -275,6 +291,13 @@ def render_html(periods):
     jperiods = []
     for label, tag, days in periods:
         bt, raw_j = load_backtest(tag)
+        sleeve = load_sleeve(tag)
+        for leg in sleeve.get("trades") or []:
+            row = dict(leg)
+            row["ts"] = int(row.get("t") or row.get("ts") or 0)
+            row["book"] = "sleeve"
+            row["pnl_pct"] = float(row.get("pnl_pct") or row.get("raw_net_pct") or 0.0)
+            bt.append(row)
         res, extras = match(bt, live_fills)
         matched = sum(1 for r in res if r["status"] == "MATCHED")
         missed = sum(1 for r in res if r["status"] != "MATCHED")
@@ -282,9 +305,16 @@ def render_html(periods):
         n_ok = matched - n_off
         wins = sum(1 for r in res if r.get("pnl_pct", 0) > 0)
         wr = round(wins / max(1, len(res)) * 100.0, 1)
-        ret_pct = round(float(raw_j.get("return_pct", 0.0)), 2)
-        dd_pct = round(float(raw_j.get("max_dd_pct", 0.0)), 1)
-        final_eq = round(float(raw_j.get("final", 2000.0)), 2)
+        if sleeve.get("equity_pct"):
+            ret_pct = round(float(sleeve.get("return_pct", 0.0)), 2)
+            dd_pct = round(float(sleeve.get("max_dd_pct", 0.0)), 1)
+            final_eq = round(float(sleeve.get("final", 2000.0)), 2)
+            equity = sleeve.get("equity_pct") or []
+        else:
+            ret_pct = round(float(raw_j.get("return_pct", 0.0)), 2)
+            dd_pct = round(float(raw_j.get("max_dd_pct", 0.0)), 1)
+            final_eq = round(float(raw_j.get("final", 2000.0)), 2)
+            equity = raw_j.get("equity_pct") or []
 
         cut_ts = 0 if days >= 1000 else now_ms - days * day
         real_acct = build_real_equity_curve(closed_pnl, wallet_now, cut_ts, bt)
@@ -304,7 +334,7 @@ def render_html(periods):
             "return_pct": ret_pct,
             "max_dd_pct": dd_pct,
             "final_eq": final_eq,
-            "equity": raw_j.get("equity_pct") or [],
+            "equity": equity,
             "real_account": real_acct,
             "trades": [
                 {
@@ -323,6 +353,7 @@ def render_html(periods):
                     "eq": r.get("eq", 2000.0),
                     "reason": r.get("reason", "end"),
                     "pyr": bool(r.get("pyr", False)),
+                    "book": r.get("book") or "schwartz",
                     "path": r.get("path"),
                     "quality": r.get("quality", "OK"),
                     "price_diff_pct": r.get("price_diff_pct"),
@@ -338,7 +369,7 @@ def render_html(periods):
         "periods": jperiods,
         "wallet_usdt": wallet_now,
         "cron_schedule": "Каждые 5 минут — сверка счёта Bybit и контроль открытых позиций; каждый час (:02) — докачка свечей и вход по новым сигналам",
-        "strategy": "Schwartz Pitbull Championship 7x",
+        "strategy": "Шварц 7x и корзина 1x",
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
     for target_dir in {LAB, OUT}:

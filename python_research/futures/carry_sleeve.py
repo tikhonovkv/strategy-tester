@@ -307,3 +307,44 @@ class CarrySleeve:
             flush=True,
         )
         return True
+
+
+def export_compare_book(cands, windows, end_ms: int) -> None:
+    """Write the sleeve legs and the combined Schwartz-plus-sleeve curve."""
+    import json
+    from datetime import datetime, timezone
+
+    import _sleeve_recheck as rec
+    import schwartz_trader as trader
+
+    series = trader._load_universe()
+    syms = list(series.keys())
+    payload = {}
+    for tag, start in windows:
+        res = rec.simulate(cands, series, syms, int(start), int(end_ms), "nox")
+        curve = []
+        for ts, eq in res.get("curve") or []:
+            if not ts:
+                continue
+            stamp = datetime.fromtimestamp(int(ts) / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")
+            curve.append([stamp, round((float(eq) / 2000.0 - 1.0) * 100.0, 2)])
+        trades = []
+        for leg in res.get("sleeve_trades") or []:
+            row = dict(leg)
+            before = max(1.0, float(row.get("margin") or 1.0))
+            row["pnl_pct"] = round(float(row.get("pnl_usd") or 0.0) / before * 100.0, 2)
+            row["eq"] = 2000.0
+            trades.append(row)
+        payload[tag] = {
+            "return_pct": res["ret"],
+            "max_dd_pct": res["dd"],
+            "final": res["final"],
+            "equity_pct": curve,
+            "trades": trades,
+        }
+        print(f"sleeve {tag}: legs={len(trades)} combined={res['ret']:+.2f}%", flush=True)
+    for folder in {sp.LAB, sp.OUT}:
+        folder.mkdir(parents=True, exist_ok=True)
+        dest = folder / "sleeve_compare.json"
+        dest.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    print("wrote sleeve_compare.json", flush=True)

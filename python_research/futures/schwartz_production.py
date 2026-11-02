@@ -569,6 +569,8 @@ def export_all_windows() -> None:
             f"ret={res['ret']:+.2f}% dd={res['dd']:.1f}% final=${res['final']:,.2f}",
             flush=True,
         )
+    import carry_sleeve
+    carry_sleeve.export_compare_book(cands, windows, t_max + 48 * HOUR)
     live_params = {
         "spec": ["schwartz_championship_7x", 0.0],
         "mode": "schwartz_championship_7x",

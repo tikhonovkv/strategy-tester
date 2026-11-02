@@ -145,6 +145,8 @@ class SleeveBook:
         self.snapshot = 0.0
         self.pending = 0.0
         self.events = []
+        self.open_legs = []
+        self.closed = []
 
     def value(self, series, t):
         return self.cash + position_value(self.positions, series, t)
@@ -178,7 +180,40 @@ class SleeveBook:
             self.events.append(self.pending)
         self.pending = 0.0
 
+    def _record_open_legs(self, series, t):
+        """Close the basket that was opened at the previous rebalance."""
+        for pos in self.open_legs:
+            sym = pos["sym"]
+            p0 = price_at(series[sym], pos["t0"])
+            p1 = price_at(series[sym], t)
+            if not p0 or not p1 or p0 <= 0:
+                continue
+            ret = leg_ret(series[sym], pos["t0"], t, pos["side"])
+            self.closed.append({
+                "sym": sym,
+                "coin": sym.replace("USDT", ""),
+                "side": int(pos["side"]),
+                "t": int(pos["t0"]),
+                "exit_ts": int(t),
+                "entry_price": round(float(p0), 6),
+                "exit_price": round(float(p1), 6),
+                "qty": round(float(pos["notional"]) / float(p0), 6),
+                "margin": round(float(pos["notional"]), 2),
+                "eff_lev": 1.0,
+                "pnl_usd": round(float(pos["notional"]) * ret, 2),
+                "raw_net_pct": round(ret * 100.0, 2),
+                "reason": "rebalance_48h",
+                "book": "sleeve",
+                "pyr": False,
+                "hold_h": max(1, int((int(t) - int(pos["t0"])) / sp.HOUR)),
+            })
+        self.open_legs = []
+
+    def _remember_open_legs(self):
+        self.open_legs = [dict(pos) for pos in self.positions]
+
     def rebalance(self, series, t, weights):
+        self._record_open_legs(series, t)
         self.pending += self._realize(series, t)
         current = self._signed()
         equity = sum(abs(v) for v in current.values()) + self.cash
@@ -214,6 +249,7 @@ class SleeveBook:
             self.snapshot = self.cash
         self.pending -= fee
         self._flush()
+        self._remember_open_legs()
 
     def scale_in(self, series, t):
         """Deploy uninvested sleeve cash onto the current names. No new ranking."""
@@ -262,6 +298,7 @@ class SleeveBook:
         return got + released
 
     def finish(self, series, t):
+        self._record_open_legs(series, t)
         self.pending += self._realize(series, t)
         self._flush()
 
@@ -496,6 +533,7 @@ def simulate(cands, series, syms, start, end, mode):
     out["schwartz_n"] = len(schwartz)
     out["sleeve_pnl"] = round(sum(book.events), 2)
     out["gap"] = round(gap, 2)
+    out["sleeve_trades"] = book.closed
     return out
 
 

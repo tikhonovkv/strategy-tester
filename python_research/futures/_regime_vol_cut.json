@@ -1,0 +1,198 @@
+{
+  "rules": {
+    "pre": {
+      "final": 12700.7,
+      "ret": 535.03,
+      "dd": 61.6,
+      "n": 237,
+      "top5_share": 0.665
+    },
+    "quarter": {
+      "final": 5358.8,
+      "ret": 167.94,
+      "dd": 17.0,
+      "n": 41,
+      "top5_share": 0.999
+    },
+    "full": {
+      "final": 34913.58,
+      "ret": 1645.68,
+      "dd": 61.6,
+      "n": 278,
+      "top5_share": 0.618
+    }
+  },
+  "0.6": {
+    "pre": {
+      "final": 9224.18,
+      "ret": 361.21,
+      "dd": 57.5,
+      "n": 163,
+      "top5_share": 0.812
+    },
+    "quarter": {
+      "final": 7113.25,
+      "ret": 255.66,
+      "dd": 8.7,
+      "n": 24,
+      "top5_share": 0.996
+    },
+    "full": {
+      "final": 33660.96,
+      "ret": 1583.05,
+      "dd": 57.5,
+      "n": 187,
+      "top5_share": 0.734
+    }
+  },
+  "0.7": {
+    "pre": {
+      "final": 13029.71,
+      "ret": 551.49,
+      "dd": 60.1,
+      "n": 188,
+      "top5_share": 0.721
+    },
+    "quarter": {
+      "final": 6841.26,
+      "ret": 242.06,
+      "dd": 8.7,
+      "n": 26,
+      "top5_share": 0.996
+    },
+    "full": {
+      "final": 45728.08,
+      "ret": 2186.4,
+      "dd": 60.1,
+      "n": 214,
+      "top5_share": 0.658
+    }
+  },
+  "0.8": {
+    "pre": {
+      "final": 12274.74,
+      "ret": 513.74,
+      "dd": 58.7,
+      "n": 200,
+      "top5_share": 0.682
+    },
+    "quarter": {
+      "final": 6732.05,
+      "ret": 236.6,
+      "dd": 9.1,
+      "n": 29,
+      "top5_share": 0.996
+    },
+    "full": {
+      "final": 42384.05,
+      "ret": 2019.2,
+      "dd": 58.7,
+      "n": 229,
+      "top5_share": 0.64
+    }
+  },
+  "quarter_dropped": {
+    "0.6": {
+      "rules_final": 5358.8,
+      "kept_final": 7113.25,
+      "dropped_n": 17,
+      "dropped_pnl_sum": -973.83,
+      "worst5_pnl_sum": -540.61,
+      "worst5": [
+        {
+          "time": "2026-09-08 16:00",
+          "sym": "ETHUSDT",
+          "pnl": -139.45
+        },
+        {
+          "time": "2026-09-30 23:00",
+          "sym": "ETHUSDT",
+          "pnl": -131.97
+        },
+        {
+          "time": "2026-09-30 17:00",
+          "sym": "SOLUSDT",
+          "pnl": -105.68
+        },
+        {
+          "time": "2026-09-09 01:00",
+          "sym": "ADAUSDT",
+          "pnl": -97.5
+        },
+        {
+          "time": "2026-09-09 07:00",
+          "sym": "ADAUSDT",
+          "pnl": -66.01
+        }
+      ]
+    },
+    "0.7": {
+      "rules_final": 5358.8,
+      "kept_final": 6841.26,
+      "dropped_n": 15,
+      "dropped_pnl_sum": -792.26,
+      "worst5_pnl_sum": -471.23,
+      "worst5": [
+        {
+          "time": "2026-09-08 16:00",
+          "sym": "ETHUSDT",
+          "pnl": -139.45
+        },
+        {
+          "time": "2026-09-30 17:00",
+          "sym": "SOLUSDT",
+          "pnl": -105.68
+        },
+        {
+          "time": "2026-09-09 01:00",
+          "sym": "ADAUSDT",
+          "pnl": -97.5
+        },
+        {
+          "time": "2026-09-09 07:00",
+          "sym": "ADAUSDT",
+          "pnl": -66.01
+        },
+        {
+          "time": "2026-09-09 05:00",
+          "sym": "ADAUSDT",
+          "pnl": -62.59
+        }
+      ]
+    },
+    "0.8": {
+      "rules_final": 5358.8,
+      "kept_final": 6732.05,
+      "dropped_n": 13,
+      "dropped_pnl_sum": -615.36,
+      "worst5_pnl_sum": -389.7,
+      "worst5": [
+        {
+          "time": "2026-09-30 17:00",
+          "sym": "SOLUSDT",
+          "pnl": -105.68
+        },
+        {
+          "time": "2026-09-09 01:00",
+          "sym": "ADAUSDT",
+          "pnl": -97.5
+        },
+        {
+          "time": "2026-09-09 07:00",
+          "sym": "ADAUSDT",
+          "pnl": -66.01
+        },
+        {
+          "time": "2026-09-09 05:00",
+          "sym": "ADAUSDT",
+          "pnl": -62.59
+        },
+        {
+          "time": "2026-10-16 02:00",
+          "sym": "ETHUSDT",
+          "pnl": -57.92
+        }
+      ]
+    }
+  }
+}

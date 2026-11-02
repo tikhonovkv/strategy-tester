@@ -1,0 +1,96 @@
+{
+  "penalty": "false lock that misses later upside weighted 5x missed ATR; false hold that gives back weighted 2x giveback",
+  "used_model": 696,
+  "locks": 57,
+  "params_last": {
+    "thr": 0.7,
+    "min_profit_atr": 1.2
+  },
+  "penalty_model": [
+    {
+      "period": "2024H2",
+      "n": 24,
+      "wr": 12.5,
+      "ret": -16.35,
+      "dd": 17.4,
+      "final": 1672.92
+    },
+    {
+      "period": "2025H1",
+      "n": 36,
+      "wr": 22.2,
+      "ret": 54.33,
+      "dd": 24.4,
+      "final": 3086.61
+    },
+    {
+      "period": "2025H2",
+      "n": 71,
+      "wr": 25.4,
+      "ret": 411.37,
+      "dd": 39.8,
+      "final": 10227.31
+    },
+    {
+      "period": "2026H1",
+      "n": 104,
+      "wr": 20.2,
+      "ret": 105.53,
+      "dd": 49.9,
+      "final": 4110.68
+    },
+    {
+      "period": "2026Q",
+      "n": 41,
+      "wr": 17.1,
+      "ret": 47.34,
+      "dd": 19.9,
+      "final": 2946.84
+    }
+  ],
+  "hourly_rules": [
+    {
+      "period": "2024H2",
+      "n": 24,
+      "wr": 8.3,
+      "ret": -5.31,
+      "dd": 14.9,
+      "final": 1893.72
+    },
+    {
+      "period": "2025H1",
+      "n": 35,
+      "wr": 14.3,
+      "ret": 27.1,
+      "dd": 25.1,
+      "final": 2542.05
+    },
+    {
+      "period": "2025H2",
+      "n": 71,
+      "wr": 18.3,
+      "ret": 187.2,
+      "dd": 57.3,
+      "final": 5744.09
+    },
+    {
+      "period": "2026H1",
+      "n": 107,
+      "wr": 16.8,
+      "ret": 97.46,
+      "dd": 52.2,
+      "final": 3949.23
+    },
+    {
+      "period": "2026Q",
+      "n": 41,
+      "wr": 14.6,
+      "ret": 167.94,
+      "dd": 17.0,
+      "final": 5358.8
+    }
+  ],
+  "periods_won": 3,
+  "q_not_worse": false,
+  "change_bot": false
+}

@@ -1,0 +1,60 @@
+{
+  "rules_final": 5358.8,
+  "filt_final": 6841.26,
+  "equity_gap": 1482.46,
+  "shared_n": 26,
+  "same_reason_n": 26,
+  "top5": [
+    {
+      "time": "2026-10-16 13:00",
+      "sym": "ADAUSDT",
+      "filt_pnl": 869.39,
+      "rules_pnl": 325.18,
+      "delta": 544.21,
+      "same_reason": true,
+      "filt_pct": 7.49,
+      "rules_pct": 7.49
+    },
+    {
+      "time": "2026-10-23 15:00",
+      "sym": "ADAUSDT",
+      "filt_pnl": 1073.17,
+      "rules_pnl": 744.91,
+      "delta": 328.26,
+      "same_reason": true,
+      "filt_pct": 8.11,
+      "rules_pct": 8.11
+    },
+    {
+      "time": "2026-08-18 11:00",
+      "sym": "ETHUSDT",
+      "filt_pnl": 3752.41,
+      "rules_pnl": 3581.84,
+      "delta": 170.57,
+      "same_reason": true,
+      "filt_pct": 40.85,
+      "rules_pct": 40.85
+    },
+    {
+      "time": "2026-09-30 23:00",
+      "sym": "ETHUSDT",
+      "filt_pnl": -293.77,
+      "rules_pnl": -131.97,
+      "delta": -161.8,
+      "same_reason": true,
+      "filt_pct": -1.18,
+      "rules_pct": -1.18
+    },
+    {
+      "time": "2026-10-20 06:00",
+      "sym": "ETHUSDT",
+      "filt_pnl": -189.06,
+      "rules_pnl": -36.29,
+      "delta": -152.77,
+      "same_reason": true,
+      "filt_pct": -0.81,
+      "rules_pct": -0.81
+    }
+  ],
+  "change_bot": false
+}

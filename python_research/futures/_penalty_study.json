@@ -1,0 +1,154 @@
+{
+  "note": "Penalty model unchanged. val_chosen picks threshold and giveback on the last train slice. frozen locks only after a 1.2 ATR fallback from the peak, probability >= 0.85, profit >= 1.5 ATR.",
+  "locks_val_chosen": 44,
+  "locks_frozen": 25,
+  "val_chosen_periods": [
+    {
+      "period": "2024H2",
+      "n": 24,
+      "wr": 12.5,
+      "ret": 11.16,
+      "dd": 13.4,
+      "final": 2223.17
+    },
+    {
+      "period": "2025H1",
+      "n": 36,
+      "wr": 22.2,
+      "ret": 51.98,
+      "dd": 24.4,
+      "final": 3039.61
+    },
+    {
+      "period": "2025H2",
+      "n": 72,
+      "wr": 18.1,
+      "ret": 334.94,
+      "dd": 46.7,
+      "final": 8698.89
+    },
+    {
+      "period": "2026H1",
+      "n": 110,
+      "wr": 16.4,
+      "ret": 42.3,
+      "dd": 61.0,
+      "final": 2845.9
+    },
+    {
+      "period": "2026Q",
+      "n": 41,
+      "wr": 17.1,
+      "ret": 97.53,
+      "dd": 19.9,
+      "final": 3950.52
+    }
+  ],
+  "frozen_periods": [
+    {
+      "period": "2024H2",
+      "n": 24,
+      "wr": 8.3,
+      "ret": -17.96,
+      "dd": 18.0,
+      "final": 1640.74
+    },
+    {
+      "period": "2025H1",
+      "n": 35,
+      "wr": 22.9,
+      "ret": 54.08,
+      "dd": 24.2,
+      "final": 3081.62
+    },
+    {
+      "period": "2025H2",
+      "n": 71,
+      "wr": 18.3,
+      "ret": 370.9,
+      "dd": 43.4,
+      "final": 9418.05
+    },
+    {
+      "period": "2026H1",
+      "n": 110,
+      "wr": 15.5,
+      "ret": 47.77,
+      "dd": 60.3,
+      "final": 2955.32
+    },
+    {
+      "period": "2026Q",
+      "n": 41,
+      "wr": 17.1,
+      "ret": 97.53,
+      "dd": 19.9,
+      "final": 3950.52
+    }
+  ],
+  "hourly_periods": [
+    {
+      "period": "2024H2",
+      "n": 24,
+      "wr": 8.3,
+      "ret": -5.31,
+      "dd": 14.9,
+      "final": 1893.72
+    },
+    {
+      "period": "2025H1",
+      "n": 35,
+      "wr": 14.3,
+      "ret": 27.1,
+      "dd": 25.1,
+      "final": 2542.05
+    },
+    {
+      "period": "2025H2",
+      "n": 71,
+      "wr": 18.3,
+      "ret": 187.2,
+      "dd": 57.3,
+      "final": 5744.09
+    },
+    {
+      "period": "2026H1",
+      "n": 107,
+      "wr": 16.8,
+      "ret": 97.46,
+      "dd": 52.2,
+      "final": 3949.23
+    },
+    {
+      "period": "2026Q",
+      "n": 41,
+      "wr": 14.6,
+      "ret": 167.94,
+      "dd": 17.0,
+      "final": 5358.8
+    }
+  ],
+  "from_2024H2_one_book": {
+    "val_chosen": {
+      "n": 283,
+      "wr": 17.3,
+      "ret": 2223.97,
+      "dd": 63.4,
+      "final": 46479.37
+    },
+    "frozen_after_peak": {
+      "n": 281,
+      "wr": 16.7,
+      "ret": 1854.98,
+      "dd": 62.8,
+      "final": 39099.56
+    },
+    "hourly_rules": {
+      "n": 278,
+      "wr": 15.8,
+      "ret": 1645.68,
+      "dd": 61.6,
+      "final": 34913.58
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "hourly": {
+    "before_quarter": {
+      "final": 12700.7,
+      "ret": 535.03,
+      "dd": 61.6,
+      "n": 237
+    },
+    "quarter": {
+      "final": 5358.8,
+      "ret": 167.94,
+      "dd": 17.0,
+      "n": 41
+    },
+    "full_book": {
+      "final": 34913.58,
+      "ret": 1645.68,
+      "dd": 61.6,
+      "n": 278
+    }
+  },
+  "grid": [
+    {
+      "lock_w": 12,
+      "hold_w": 2,
+      "locks": 23,
+      "last_params": {
+        "thr": 0.6,
+        "min_profit": 1.2
+      },
+      "before_quarter": {
+        "final": 12400.49,
+        "ret": 520.02,
+        "dd": 57.2,
+        "n": 240
+      },
+      "quarter": {
+        "final": 4282.82,
+        "ret": 114.14,
+        "dd": 19.9,
+        "n": 41
+      },
+      "full_book": {
+        "final": 27110.08,
+        "ret": 1255.5,
+        "dd": 59.9,
+        "n": 281
+      }
+    }
+  ],
+  "chosen_by_pre_quarter_final": {
+    "lock_w": 12,
+    "hold_w": 2
+  },
+  "change_bot": false
+}

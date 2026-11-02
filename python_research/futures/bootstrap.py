@@ -15,7 +15,13 @@ DATA = OUT / "data"
 SEED_DATA = LAB / "data"
 STATE = Path.home() / ".cursor" / "bybit-top25-scan-state" / "pairs_cache"
 DATA.mkdir(parents=True, exist_ok=True)
-COINS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "SUIUSDT"]
+COINS = [
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
+    "ADAUSDT", "AVAXUSDT", "LINKUSDT", "SUIUSDT",
+    "LTCUSDT", "BCHUSDT", "DOTUSDT", "NEARUSDT", "ATOMUSDT",
+    "UNIUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "INJUSDT", "FILUSDT",
+    "TRXUSDT", "XLMUSDT", "ETCUSDT", "AAVEUSDT", "TIAUSDT",
+]
 HOUR = 3_600_000
 
 

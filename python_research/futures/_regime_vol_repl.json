@@ -1,0 +1,43 @@
+{
+  "rules_final": 5744.09,
+  "filt_final": 8235.48,
+  "equity_gap": 2491.39,
+  "added_n": 5,
+  "added_pnl": -959.59,
+  "added_share_of_gap": -0.385,
+  "removed_n": 9,
+  "removed_pnl": 1332.58,
+  "added": [
+    {
+      "time": "2025-12-17 16:00",
+      "sym": "ADAUSDT",
+      "pnl": 116.31,
+      "reason": "breakeven"
+    },
+    {
+      "time": "2025-12-27 07:00",
+      "sym": "SUIUSDT",
+      "pnl": -61.1,
+      "reason": "fast_bail"
+    },
+    {
+      "time": "2025-09-04 14:00",
+      "sym": "XRPUSDT",
+      "pnl": -66.67,
+      "reason": "fast_bail"
+    },
+    {
+      "time": "2025-10-23 08:00",
+      "sym": "SUIUSDT",
+      "pnl": -424.94,
+      "reason": "hard_stop"
+    },
+    {
+      "time": "2025-10-23 10:00",
+      "sym": "LINKUSDT",
+      "pnl": -523.19,
+      "reason": "hard_stop"
+    }
+  ],
+  "change_bot": false
+}

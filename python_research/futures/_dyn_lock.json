@@ -1,0 +1,92 @@
+{
+  "model": "MLP predicts remaining upside in ATR over the next 24 hourly closes. Lock if forecast is small and profit is already large. Walk-forward, past closed trades only.",
+  "used_model": 696,
+  "locks": 9,
+  "dynamic": [
+    {
+      "period": "2024H2",
+      "n": 24,
+      "wr": 8.3,
+      "ret": -7.52,
+      "dd": 16.6,
+      "final": 1849.7
+    },
+    {
+      "period": "2025H1",
+      "n": 35,
+      "wr": 14.3,
+      "ret": 8.09,
+      "dd": 26.7,
+      "final": 2161.71
+    },
+    {
+      "period": "2025H2",
+      "n": 71,
+      "wr": 18.3,
+      "ret": 330.26,
+      "dd": 43.1,
+      "final": 8605.21
+    },
+    {
+      "period": "2026H1",
+      "n": 110,
+      "wr": 14.5,
+      "ret": 80.63,
+      "dd": 53.4,
+      "final": 3612.55
+    },
+    {
+      "period": "2026Q",
+      "n": 41,
+      "wr": 14.6,
+      "ret": 149.71,
+      "dd": 17.1,
+      "final": 4994.11
+    }
+  ],
+  "hourly_rules": [
+    {
+      "period": "2024H2",
+      "n": 24,
+      "wr": 8.3,
+      "ret": -5.31,
+      "dd": 14.9,
+      "final": 1893.72
+    },
+    {
+      "period": "2025H1",
+      "n": 35,
+      "wr": 14.3,
+      "ret": 27.1,
+      "dd": 25.1,
+      "final": 2542.05
+    },
+    {
+      "period": "2025H2",
+      "n": 71,
+      "wr": 18.3,
+      "ret": 187.2,
+      "dd": 57.3,
+      "final": 5744.09
+    },
+    {
+      "period": "2026H1",
+      "n": 107,
+      "wr": 16.8,
+      "ret": 97.46,
+      "dd": 52.2,
+      "final": 3949.23
+    },
+    {
+      "period": "2026Q",
+      "n": 41,
+      "wr": 14.6,
+      "ret": 167.94,
+      "dd": 17.0,
+      "final": 5358.8
+    }
+  ],
+  "periods_won": 1,
+  "q_not_worse": false,
+  "change_bot": false
+}

@@ -87,6 +87,10 @@ def fetch_live_executions_and_closed_pnl():
     try:
         d = client.private_get("/v5/account/wallet-balance", {"accountType": "UNIFIED"})
         for acct in (d.get("result") or {}).get("list") or []:
+            equity = float(acct.get("totalEquity") or 0)
+            if equity > 0:
+                wallet_usdt = equity
+                break
             for coin in acct.get("coin") or []:
                 if str(coin.get("coin")) == "USDT":
                     wallet_usdt = float(coin.get("walletBalance") or 2000.0)
@@ -195,7 +199,11 @@ def build_real_equity_curve(closed_pnl: list[dict], wallet_now: float, cut_ts: i
                 if bt["coin"] == c["coin"] and bt["side"] == c["side"] and abs(bt["ts"] - c["created_ts"]) <= 36 * 3600000:
                     matched_bt = True
                     break
-        c["is_schwartz"] = bool(matched_bt or (c["created_ts"] >= 1792713600000 and abs(c.get("leverage", 0) - 7.0) < 0.5))
+        schwartz_names = {"ETH", "SOL", "XRP", "ADA", "AVAX", "LINK", "SUI"}
+        c["is_sleeve"] = c["coin"] not in schwartz_names and abs(float(c.get("leverage") or 0) - 1.0) < 0.2
+        c["is_schwartz"] = (not c["is_sleeve"]) and bool(
+            matched_bt or (c["created_ts"] >= 1792713600000 and abs(c.get("leverage", 0) - 7.0) < 0.5)
+        )
         pts.append([c["exit_time"], pct, round(running_bal, 2)])
     pts.append([iso(now_ms), round((running_bal / start_bal - 1.0) * 100.0, 2), round(running_bal, 2)])
     return {
@@ -337,6 +345,11 @@ def render_html(periods):
         tmp = target_dir / "futures_compare.json.tmp"
         tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, target_dir / "futures_compare.json")
+    try:
+        import s3_storage
+        s3_storage.put_json("futures_compare.json", payload)
+    except Exception as exc:
+        print("  s3 compare:", exc, flush=True)
     print("saved futures_compare.json with real_account PnL and backtest curves", flush=True)
 
 

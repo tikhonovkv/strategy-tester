@@ -1,0 +1,33 @@
+{
+  "updated": "2026-11-02",
+  "baseline_full": {
+    "ret": 2251.79,
+    "dd": 65.8,
+    "final": 47035.9,
+    "top5": 0.556
+  },
+  "separation": {
+    "vol_surge_win_lose": [1.3143, 1.0802],
+    "body_win_lose": [0.622, 0.6154],
+    "close_loc_win_lose": [0.7978, 0.8093],
+    "thrust_win_lose": [1.4568, 1.3058],
+    "rank_median_both": 4,
+    "rs12_does_not_favor_winners": true
+  },
+  "do_not_repeat": [
+    "vol15",
+    "vol20",
+    "body65",
+    "close85",
+    "thrust1",
+    "rs12",
+    "leader2",
+    "coil08",
+    "ignition",
+    "edge_bar",
+    "hgb",
+    "evict"
+  ],
+  "why": "Hard gates cut the tail. Flat $100 expectancy without the top 5 stays negative in 2022, 2023, 2024, 2026H1 and 2026Q. Volume separates winners only from 1.31 to 1.08. Candle body and close location do not separate them. Replacing a dead slot lowered the full book from $47,036 to $31,932 and cut 2025.",
+  "next": "Rank two signals that arrive in the same hour by vol_surge and thrust, without deleting the rest of the book. Test that rank only as a tie break inside the current two-slot queue. Do not turn a feature into a veto unless the flat ex5 mean is positive in 2024 and the 2025 and 2026Q portfolios are not worse."
+}

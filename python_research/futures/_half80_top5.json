@@ -1,0 +1,18 @@
+{
+  "rows": {
+    "2025": {
+      "rules_top5": 0.78,
+      "half_top5": 0.781,
+      "rules_ret": 210.97,
+      "half_ret": 220.94
+    },
+    "2026Q": {
+      "rules_top5": 0.999,
+      "half_top5": 0.999,
+      "rules_ret": 167.94,
+      "half_ret": 193.68
+    }
+  },
+  "dependence_remains": false,
+  "change_bot": false
+}

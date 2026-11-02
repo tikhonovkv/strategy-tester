@@ -1,0 +1,45 @@
+{
+  "equity_gap": 2491.39,
+  "shared_n": 62,
+  "shared_delta_sum": 4783.53,
+  "top5_delta_sum": 7688.86,
+  "top5_share_of_gap": 3.086,
+  "top5": [
+    {
+      "time": "2025-10-10 15:00",
+      "sym": "SUIUSDT",
+      "filt_pnl": 9920.66,
+      "rules_pnl": 6582.08,
+      "delta": 3338.58
+    },
+    {
+      "time": "2025-11-02 09:00",
+      "sym": "SUIUSDT",
+      "filt_pnl": 6694.36,
+      "rules_pnl": 4546.17,
+      "delta": 2148.19
+    },
+    {
+      "time": "2025-07-08 05:00",
+      "sym": "ETHUSDT",
+      "filt_pnl": 1905.75,
+      "rules_pnl": 952.87,
+      "delta": 952.88
+    },
+    {
+      "time": "2025-09-21 21:00",
+      "sym": "ETHUSDT",
+      "filt_pnl": 2058.17,
+      "rules_pnl": 1366.62,
+      "delta": 691.55
+    },
+    {
+      "time": "2025-08-28 16:00",
+      "sym": "SUIUSDT",
+      "filt_pnl": 1626.78,
+      "rules_pnl": 1069.12,
+      "delta": 557.66
+    }
+  ],
+  "change_bot": false
+}

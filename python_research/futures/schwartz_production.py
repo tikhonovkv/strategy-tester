@@ -81,6 +81,71 @@ def half_year_returns(curve: list, start_equity: float = 2000.0) -> dict:
         end_e = buckets[key]
         out[key] = round((end_e / start_e - 1.0) * 100.0, 2) if start_e else 0.0
     return out
+
+def _walk_exit(s, i, side, entry_px, atr, pyramid_floor: bool):
+    """One causal exit path. pyramid_floor raises the breakeven only after +2 ATR."""
+    peak_move = 0.0
+    min_move = 0.0
+    exit_idx = i + 1
+    reason = "end"
+    pyr_triggered = False
+    pyr_entry_move = 0.0
+    pyr_ts = 0
+    px = s["px"]
+    for j in range(i + 1, min(len(px), i + 96)):
+        if int(s["close_ts"][j]) != int(s["close_ts"][j - 1]) + HOUR:
+            exit_idx = j - 1
+            reason = "gap"
+            break
+        cpx = float(px[j])
+        move = side * (cpx / entry_px - 1.0)
+        min_move = min(min_move, move)
+        peak_move = max(peak_move, move)
+        h = j - i
+        if not pyr_triggered and move >= 2.0 * atr:
+            pyr_triggered = True
+            pyr_entry_move = move
+            pyr_ts = int(s["close_ts"][j])
+        if h <= 4 and move <= -0.8 * atr:
+            exit_idx, reason = j, "fast_bail"
+            break
+        if move <= -2.2 * atr:
+            exit_idx, reason = j, "hard_stop"
+            break
+        be_floor = 1.15 * atr if (pyramid_floor and pyr_triggered) else 0.4 * atr
+        if peak_move >= 3.0 * atr and move <= be_floor:
+            exit_idx, reason = j, "breakeven"
+            break
+        ema = float(s["ema240"][j])
+        if (side == 1 and cpx < ema) or (side == -1 and cpx > ema):
+            exit_idx, reason = j, "ema10_exit"
+            break
+        exit_idx = j
+    return {
+        "exit_idx": exit_idx,
+        "reason": reason,
+        "min_move": float(min_move),
+        "pyr_triggered": pyr_triggered,
+        "pyr_entry_move": float(pyr_entry_move),
+        "pyr_ts": int(pyr_ts),
+    }
+
+
+def _path_net(s, t_ms, exit_ts, side, entry_px, exit_px, pyr_entry_move, with_pyramid):
+    f_ts, f_rate = s["f_ts"], s["f_rate"]
+    lo = int(np.searchsorted(f_ts, t_ms, side="right"))
+    hi = int(np.searchsorted(f_ts, exit_ts, side="right"))
+    paid = float(f_rate[lo:hi].sum()) if hi > lo else 0.0
+    f_adj = -paid if side == 1 else paid
+    raw_end = side * (exit_px / entry_px - 1.0)
+    net = raw_end + f_adj - TAKER_FEE
+    if with_pyramid:
+        pyr_net = 0.50 * ((raw_end - pyr_entry_move) + 0.5 * f_adj - TAKER_FEE)
+    else:
+        pyr_net = 0.0
+    return float(net), float(pyr_net)
+
+
 def build_tranche_candidates() -> tuple[list[dict], dict]:
     """Reconstruct all scored candidate trades with a single clean exit price and
     exact entry-to-exit PnL (no multi-tranche price ambiguity).
@@ -150,55 +215,23 @@ def build_tranche_candidates() -> tuple[list[dict], dict]:
         entry_px = float(s["px"][i])
         atr = max(float(s["atr1h"][i]), 0.002)
         f_ts, f_rate = s["f_ts"], s["f_rate"]
-        peak_move = 0.0
-        min_move = 0.0
-        exit_idx = i + 1
-        reason = "end"
-        pyr_triggered = False
-        pyr_entry_move = 0.0
-        for j in range(i + 1, min(len(s["px"]), i + 96)):
-            if int(s["close_ts"][j]) != int(s["close_ts"][j - 1]) + HOUR:
-                exit_idx = j - 1
-                reason = "gap"
-                break
-            cpx = float(s["px"][j])
-            move = side * (cpx / entry_px - 1.0)
-            min_move = min(min_move, move)
-            peak_move = max(peak_move, move)
-            h = j - i
-            if not pyr_triggered and move >= 2.0 * atr:
-                pyr_triggered = True
-                pyr_entry_move = move
-            if h <= 4 and move <= -0.8 * atr:
-                exit_idx = j
-                reason = "fast_bail"
-                break
-            if move <= -2.2 * atr:
-                exit_idx = j
-                reason = "hard_stop"
-                break
-            be_floor = 1.15 * atr if pyr_triggered else 0.4 * atr
-            if peak_move >= 3.0 * atr and move <= be_floor:
-                exit_idx = j
-                reason = "breakeven"
-                break
-            if (side == 1 and cpx < s["ema240"][j]) or (side == -1 and cpx > s["ema240"][j]):
-                exit_idx = j
-                reason = "ema10_exit"
-                break
-            exit_idx = j
+        walked = _walk_exit(s, i, side, entry_px, atr, pyramid_floor=True)
+        plain = _walk_exit(s, i, side, entry_px, atr, pyramid_floor=False)
+        exit_idx = walked["exit_idx"]
+        reason = walked["reason"]
+        min_move = walked["min_move"]
+        pyr_triggered = walked["pyr_triggered"]
+        pyr_entry_move = walked["pyr_entry_move"]
+        pyr_ts = walked["pyr_ts"]
         exit_px = float(s["px"][exit_idx])
         exit_ts = int(s["close_ts"][exit_idx])
-        lo = int(np.searchsorted(f_ts, t_ms, side="right"))
-        hi = int(np.searchsorted(f_ts, exit_ts, side="right"))
-        paid = float(f_rate[lo:hi].sum()) if hi > lo else 0.0
-        f_adj = (-paid if side == 1 else paid)
-        raw_end = side * (exit_px / entry_px - 1.0)
-        net = raw_end + f_adj - TAKER_FEE
-        if pyr_triggered:
-            pyr_net = 0.50 * ((raw_end - pyr_entry_move) + 0.5 * f_adj - TAKER_FEE)
-        else:
-            pyr_net = 0.0
+        net, pyr_net = _path_net(
+            s, t_ms, exit_ts, side, entry_px, exit_px, pyr_entry_move, pyr_triggered,
+        )
+        nopyr_idx = plain["exit_idx"]
+        nopyr_px = float(s["px"][nopyr_idx])
+        nopyr_ts = int(s["close_ts"][nopyr_idx])
+        net_nopyr, _ = _path_net(s, t_ms, nopyr_ts, side, entry_px, nopyr_px, 0.0, False)
         p_lo = max(0, i - 2)
         p_hi = min(len(s["px"]) - 1, exit_idx + 2)
         path_px = [round(float(s["px"][k]), 4) for k in range(p_lo, p_hi + 1)]
@@ -219,6 +252,11 @@ def build_tranche_candidates() -> tuple[list[dict], dict]:
             "atr": float(atr),
             "reason": reason,
             "pyr": bool(pyr_triggered),
+            "pyr_ts": int(pyr_ts),
+            "exit_ts_nopyr": int(nopyr_ts),
+            "net_nopyr": float(net_nopyr),
+            "reason_nopyr": plain["reason"],
+            "min_move_nopyr": float(plain["min_move"]),
         })
     sig_hist = {s: deque(maxlen=6) for s in ALTS_7}
     sig_lstreak = {s: 0 for s in ALTS_7}
@@ -240,8 +278,56 @@ def build_tranche_candidates() -> tuple[list[dict], dict]:
         e["hot_n"] = len(ch)
         e["hot_avg"] = float(np.mean(ch)) if len(ch) > 0 else 0.0
         e["c_lstreak"] = sig_lstreak[e["sym"]]
+        s_coin = series[e["sym"]]
+        idx_c = idx_map[e["sym"]].get(int(t))
+        if idx_c is not None and idx_c >= 24:
+            v_arr = s_coin["vol"]
+            base_v = float(np.median(v_arr[idx_c - 24:idx_c]))
+            e["vol_surge"] = float(v_arr[idx_c]) / max(base_v, 1e-8)
+        else:
+            e["vol_surge"] = 1.0
+        side_e = int(e["side"])
+        peers = []
+        for psym in ALTS_7:
+            pi = idx_map[psym].get(int(t))
+            if pi is None or pi < 24:
+                continue
+            ps = series[psym]
+            pr = side_e * (float(ps["px"][pi]) / max(float(ps["px"][pi - 24]), 1e-12) - 1.0)
+            peers.append((psym, pr))
+        peers.sort(key=lambda x: x[1], reverse=True)
+        e["rank24"] = next((k + 1 for k, (psym, _v) in enumerate(peers) if psym == e["sym"]), len(peers) + 1)
         pend_sigs.append((e["exit_ts"], e["sym"], e["net"] + 1.5 * e["pyr_net"]))
     return cands, series
+
+
+def size_multiplier(
+    loss_streak: int,
+    win_streak: int,
+    c_lstreak: int = 0,
+    hot_avg: float = 0.0,
+    win_cap: float = 1.15,
+) -> float:
+    """Shared stake size for the backtest and the live bot.
+
+    The 2022-2026 stand kept the loss-streak cut and replaced the 1.25/1.80
+    win boost with a 1.15 cap. Half size above the 80th ATR percentile, the
+    equity ratchet, and the 10% impulse lock each worsened a year or the
+    current quarter, so they are not part of this multiplier.
+    """
+    if loss_streak > 0:
+        mult = 0.45 ** min(int(loss_streak), 2)
+    elif win_streak >= 1:
+        mult = float(win_cap)
+    else:
+        mult = 1.0
+    if int(c_lstreak) >= 4:
+        mult *= 0.50
+    elif float(hot_avg) > 0.008:
+        mult *= 1.15
+    return float(mult)
+
+
 def simulate_window(
     part: list[dict],
     sat_min: float = 0.015,
@@ -249,7 +335,7 @@ def simulate_window(
     max_margin_frac: float = 0.60,
     lev: float = 7.0,
     max_conc: int = 2,
-    win_boost: float = 1.80,
+    win_boost: float = 1.15,
     pyr_mult: float = 1.50,
     start_eq: float = 2000.0,
     core_gate: bool = True,
@@ -262,12 +348,18 @@ def simulate_window(
     for e in part:
         if min_score is not None and float(e.get(score_key, -1e9)) < min_score:
             continue
+        if int(e.get("side") or 0) == 1 and e["sym"] not in {"BTCUSDT", "ETHUSDT"} and int(e.get("rank24", 1)) > 2:
+            continue
         if core_gate and e["sym"] not in CORE_4:
             if e["hot_n"] < 4 or e["hot_avg"] < sat_min:
                 continue
         by_t.setdefault(e["t"], []).append(e)
         times.add(e["t"])
         times.add(e["exit_ts"])
+        times.add(int(e.get("exit_ts_nopyr") or e["exit_ts"]))
+        pyr_ts = int(e.get("pyr_ts") or 0)
+        if pyr_ts:
+            times.add(pyr_ts)
     free = start_eq
     reserved = 0.0
     open_pos = []
@@ -282,13 +374,23 @@ def simulate_window(
         for p in open_pos:
             if p["exit_ts"] <= t:
                 e = p["e"]
-                tot_net = e["net"] + p["pyr_scale"] * e["pyr_net"]
-                if e["min_move"] * p["eff_lev"] <= -1.0:
-                    pnl = -p["margin"]
+                use_pyr = bool(p.get("use_pyr")) and float(p.get("pyr_scale") or 0.0) > 0.0
+                if use_pyr:
+                    tot_net = e["net"] + p["pyr_scale"] * e["pyr_net"]
+                    min_move = e["min_move"]
+                    reason_live = e["reason"]
                 else:
-                    pnl = max(-p["margin"], p["margin"] * p["eff_lev"] * tot_net)
-                free += p["margin"] + pnl
-                reserved -= p["margin"]
+                    tot_net = e.get("net_nopyr", e["net"])
+                    min_move = e.get("min_move_nopyr", e["min_move"])
+                    reason_live = e.get("reason_nopyr", e["reason"])
+                locked = float(p.get("pyr_locked") or 0.0)
+                loss_cap = -(p["margin"] + locked)
+                if min_move * p["eff_lev"] <= -1.0:
+                    pnl = loss_cap
+                else:
+                    pnl = max(loss_cap, p["margin"] * p["eff_lev"] * tot_net)
+                free += p["margin"] + locked + pnl
+                reserved -= p["margin"] + locked
                 eq = free + reserved
                 if pnl < 0:
                     loss_streak += 1
@@ -321,7 +423,7 @@ def simulate_window(
                     "pnl_pct": round(float(contrib) * 100.0, 2),
                     "contrib": round(float(contrib), 6),
                     "eq": round(float(eq), 2),
-                    "reason": e["reason"],
+                    "reason": reason_live,
                     "pyr": bool(e["pyr"] and p["pyr_scale"] > 0),
                     "path": e["path"],
                 })
@@ -332,29 +434,47 @@ def simulate_window(
         eq = free + reserved
         if eq <= 0:
             break
+        for p in open_pos:
+            due = int(p.get("pyr_ts") or 0)
+            if not due or due > t or p.get("pyr_checked"):
+                continue
+            p["pyr_checked"] = True
+            need = 0.50 * p["margin"]
+            if need < 10.0 or free * 0.90 < 10.0:
+                continue
+            scale = min(1.0, (free * 0.90) / need)
+            locked = need * scale
+            if locked < 10.0 or locked > free:
+                continue
+            free -= locked
+            reserved += locked
+            p["pyr_locked"] = locked
+            p["pyr_scale"] = scale
+            p["use_pyr"] = True
+            p["exit_ts"] = int(p["e"]["exit_ts"])
+        eq = free + reserved
         batch = by_t.get(t, [])
         if not batch or len(open_pos) >= max_conc:
             continue
         if rank == "nn":
             batch = sorted(batch, key=lambda x: float(x.get(score_key, -1e9)), reverse=True)
         else:
-            batch = sorted(batch, key=lambda x: (1 if x["sym"] in CORE_4 else 0, x["hot_avg"]), reverse=True)
+            batch = sorted(
+                batch,
+                key=lambda x: (1 if x["sym"] in CORE_4 else 0, float(x.get("vol_surge", 1.0)) + 5.0 * float(x.get("hot_avg", 0.0))),
+                reverse=True,
+            )
         busy = {p["e"]["sym"] for p in open_pos}
         for e in batch:
             if len(open_pos) >= max_conc or e["sym"] in busy:
                 continue
-            if loss_streak > 0:
-                mult = 0.45 ** min(loss_streak, 2)
-            elif win_streak >= 2:
-                mult = win_boost
-            elif win_streak == 1:
-                mult = 1.25
-            else:
-                mult = 1.0
-            if e["c_lstreak"] >= 4:
-                mult *= 0.50
-            elif e["hot_avg"] > 0.008:
-                mult *= 1.15
+            mult = size_multiplier(
+                loss_streak,
+                win_streak,
+                int(e.get("c_lstreak") or 0),
+                float(e.get("hot_avg") or 0.0),
+                win_cap=win_boost,
+            )
             if e.get("nn_mult") is not None:
                 mult *= float(e["nn_mult"])
             stop_dist = max(1.6 * e["atr"], 0.008)
@@ -370,19 +490,16 @@ def simulate_window(
                 continue
             free -= margin
             reserved += margin
-            # Check if free margin remains for the +50% pyramid leg (just like live_bot.py)
-            rem_after_open = max(0.0, free)
-            need_pyr = 0.50 * margin
-            if e["pyr"] and rem_after_open >= 10.0:
-                pyr_scale = min(1.0, (rem_after_open * 0.90) / max(need_pyr, 1e-8))
-            else:
-                pyr_scale = 0.0
             open_pos.append({
                 "e": e,
-                "exit_ts": e["exit_ts"],
+                "exit_ts": int(e.get("exit_ts_nopyr") or e["exit_ts"]),
+                "use_pyr": False,
                 "qty": qty,
                 "margin": margin,
-                "pyr_scale": pyr_scale,
+                "pyr_scale": 0.0,
+                "pyr_ts": int(e.get("pyr_ts") or 0),
+                "pyr_locked": 0.0,
+                "pyr_checked": False,
                 "eff_lev": lev,
                 "eq_entry": eq,
             })
@@ -460,6 +577,7 @@ def export_all_windows() -> None:
         "max_margin_frac": 0.60,
         "max_conc": 2,
         "pyr_mult": 1.50,
+        "enable_sleeve": True,
         "tp1_atr": 3.0,
         "tp2_atr": 5.5,
         "fast_bail_h": 4,
@@ -526,15 +644,42 @@ def scan_live_schwartz(now_ms: int | None = None) -> tuple[list[dict], dict]:
         btc_ok = (side == 1 and btc_px > btc_e240) or (side == -1 and btc_px < btc_e240)
         if not btc_ok or carry_z < 0.0:
             continue
-        closed_sym = [c for c in cands if c["sym"] == sym and c["exit_ts"] <= now_ms][-6:]
-        hot_avg = float(np.mean([c["net"] + 1.5 * c["pyr_net"] for c in closed_sym])) if closed_sym else 0.0
+        # Side asymmetry: LONG only ETH/BTC or top-2 24h momentum leaders across the 7-alt basket
+        peers = []
+        for psym in ALTS_7:
+            ps = series[psym]
+            pi = int(np.searchsorted(ps["close_ts"], t))
+            if pi < len(ps["close_ts"]) and int(ps["close_ts"][pi]) == t and pi >= 24:
+                pr = side * (float(ps["px"][pi]) / max(float(ps["px"][pi - 24]), 1e-12) - 1.0)
+                peers.append((psym, pr))
+        peers.sort(key=lambda x: x[1], reverse=True)
+        rank24 = next((k + 1 for k, (psym, _v) in enumerate(peers) if psym == sym), len(peers) + 1)
+        if side == 1 and sym not in {"BTCUSDT", "ETHUSDT"} and rank24 > 2:
+            continue
+        v_arr = s["vol"]
+        base_v = float(np.median(v_arr[i - 24:i])) if i >= 24 else float(v_arr[i])
+        vol_surge = float(v_arr[i]) / max(base_v, 1e-8)
+        closed_all = [c for c in cands if c["sym"] == sym and int(c["exit_ts"]) <= now_ms]
+        closed_all.sort(key=lambda c: int(c["exit_ts"]))
+        c_lstreak = 0
+        for c in closed_all:
+            tot = float(c["net"]) + 1.5 * float(c["pyr_net"])
+            c_lstreak = c_lstreak + 1 if tot < 0 else 0
+        hot_all = float(np.mean([float(c["net"]) + 1.5 * float(c["pyr_net"]) for c in closed_all])) if closed_all else 0.0
+        closed_sym = closed_all[-6:]
+        hot_avg = float(np.mean([float(c["net"]) + 1.5 * float(c["pyr_net"]) for c in closed_sym])) if closed_sym else 0.0
         if sym not in CORE_4 and (len(closed_sym) < 4 or hot_avg < 0.015):
             continue
         live_signals.append({
             "symbol": sym,
             "coin": SHORT_NAME[sym],
             "side": side,
-            "score": round(0.015 + 0.002 * carry_z + max(0.0, hot_avg), 4),
+            "score": round(
+                (1.0 if sym in CORE_4 else 0.0) + 0.1 * min(vol_surge, 5.0) + 0.002 * carry_z + max(0.0, hot_avg),
+                4,
+            ),
+            "vol_surge": round(vol_surge, 3),
+            "rank24": int(rank24),
             "ts": t,
             "entry_px": round(cur_px, 4),
             "atr": round(atr, 5),
@@ -543,6 +688,8 @@ def scan_live_schwartz(now_ms: int | None = None) -> tuple[list[dict], dict]:
             "pyr_px": round(cur_px * (1.0 + side * 2.0 * atr), 4),
             "fast_bail_px": round(cur_px * (1.0 - side * 0.8 * atr), 4),
             "hard_stop_px": round(cur_px * (1.0 - side * 2.2 * atr), 4),
+            "c_lstreak": int(c_lstreak),
+            "hot_avg": round(hot_avg, 6),
         })
     live_signals.sort(key=lambda x: x["score"], reverse=True)
     return live_signals, series

@@ -1,0 +1,78 @@
+{
+  "2025H2": {
+    "rules_ret": 187.2,
+    "filt_ret": 311.77,
+    "rules_final": 5744.09,
+    "filt_final": 8235.48,
+    "dropped_n": 9,
+    "dropped_pnl": 1332.58,
+    "worst5_pnl": -689.65,
+    "worst5_share_of_dropped": -0.518,
+    "worst5": [
+      {
+        "time": "2025-12-19 18:00",
+        "sym": "SOLUSDT",
+        "pnl": -205.7
+      },
+      {
+        "time": "2025-11-13 10:00",
+        "sym": "AVAXUSDT",
+        "pnl": -168.02
+      },
+      {
+        "time": "2025-07-26 04:00",
+        "sym": "XRPUSDT",
+        "pnl": -126.19
+      },
+      {
+        "time": "2025-12-26 15:00",
+        "sym": "SOLUSDT",
+        "pnl": -98.95
+      },
+      {
+        "time": "2025-12-26 15:00",
+        "sym": "ADAUSDT",
+        "pnl": -90.79
+      }
+    ],
+    "mostly_five": false
+  },
+  "2026Q": {
+    "rules_ret": 167.94,
+    "filt_ret": 242.06,
+    "rules_final": 5358.8,
+    "filt_final": 6841.26,
+    "dropped_n": 15,
+    "dropped_pnl": -792.26,
+    "worst5_pnl": -471.23,
+    "worst5_share_of_dropped": 0.595,
+    "worst5": [
+      {
+        "time": "2026-09-08 16:00",
+        "sym": "ETHUSDT",
+        "pnl": -139.45
+      },
+      {
+        "time": "2026-09-30 17:00",
+        "sym": "SOLUSDT",
+        "pnl": -105.68
+      },
+      {
+        "time": "2026-09-09 01:00",
+        "sym": "ADAUSDT",
+        "pnl": -97.5
+      },
+      {
+        "time": "2026-09-09 07:00",
+        "sym": "ADAUSDT",
+        "pnl": -66.01
+      },
+      {
+        "time": "2026-09-09 05:00",
+        "sym": "ADAUSDT",
+        "pnl": -62.59
+      }
+    ],
+    "mostly_five": false
+  }
+}

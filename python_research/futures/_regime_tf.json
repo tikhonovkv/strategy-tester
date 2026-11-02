@@ -1,0 +1,146 @@
+{
+  "rules": {
+    "kept": 789,
+    "pre": {
+      "final": 12700.7,
+      "ret": 535.03,
+      "dd": 61.6,
+      "n": 237,
+      "top5_share": 0.665
+    },
+    "quarter": {
+      "final": 5358.8,
+      "ret": 167.94,
+      "dd": 17.0,
+      "n": 41,
+      "top5_share": 0.999
+    },
+    "full": {
+      "final": 34913.58,
+      "ret": 1645.68,
+      "dd": 61.6,
+      "n": 278,
+      "top5_share": 0.618
+    }
+  },
+  "daily_agrees": {
+    "kept": 529,
+    "pre": {
+      "final": 4832.58,
+      "ret": 141.63,
+      "dd": 58.4,
+      "n": 151,
+      "top5_share": 0.702
+    },
+    "quarter": {
+      "final": 1566.83,
+      "ret": -21.66,
+      "dd": 21.7,
+      "n": 28,
+      "top5_share": 1.0
+    },
+    "full": {
+      "final": 3902.58,
+      "ret": 95.13,
+      "dd": 58.4,
+      "n": 179,
+      "top5_share": 0.687
+    }
+  },
+  "4h_and_daily": {
+    "kept": 431,
+    "pre": {
+      "final": 2097.58,
+      "ret": 4.88,
+      "dd": 74.4,
+      "n": 125,
+      "top5_share": 0.837
+    },
+    "quarter": {
+      "final": 1647.07,
+      "ret": -17.65,
+      "dd": 17.6,
+      "n": 23,
+      "top5_share": 1.0
+    },
+    "full": {
+      "final": 1781.08,
+      "ret": -10.95,
+      "dd": 74.4,
+      "n": 148,
+      "top5_share": 0.823
+    }
+  },
+  "veto_if_daily_and_3d_against": {
+    "kept": 789,
+    "pre": {
+      "final": 12700.7,
+      "ret": 535.03,
+      "dd": 61.6,
+      "n": 237,
+      "top5_share": 0.665
+    },
+    "quarter": {
+      "final": 5358.8,
+      "ret": 167.94,
+      "dd": 17.0,
+      "n": 41,
+      "top5_share": 0.999
+    },
+    "full": {
+      "final": 34913.58,
+      "ret": 1645.68,
+      "dd": 61.6,
+      "n": 278,
+      "top5_share": 0.618
+    }
+  },
+  "at_least_2_of_3": {
+    "kept": 602,
+    "pre": {
+      "final": 9408.74,
+      "ret": 370.44,
+      "dd": 61.2,
+      "n": 177,
+      "top5_share": 0.762
+    },
+    "quarter": {
+      "final": 1413.8,
+      "ret": -29.31,
+      "dd": 29.3,
+      "n": 30,
+      "top5_share": 1.0
+    },
+    "full": {
+      "final": 7165.25,
+      "ret": 258.26,
+      "dd": 61.2,
+      "n": 207,
+      "top5_share": 0.747
+    }
+  },
+  "all_3_plus_btc": {
+    "kept": 223,
+    "pre": {
+      "final": 6108.98,
+      "ret": 205.45,
+      "dd": 52.4,
+      "n": 73,
+      "top5_share": 0.859
+    },
+    "quarter": {
+      "final": 1970.07,
+      "ret": -1.5,
+      "dd": 9.7,
+      "n": 13,
+      "top5_share": 1.0
+    },
+    "full": {
+      "final": 6205.4,
+      "ret": 210.27,
+      "dd": 52.4,
+      "n": 86,
+      "top5_share": 0.819
+    }
+  }
+}

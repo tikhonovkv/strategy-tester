@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\TimewebState;
 use Illuminate\Http\Request;
 
 class FuturesController extends Controller
@@ -27,7 +28,7 @@ class FuturesController extends Controller
                 }
             }
         }
-        return [];
+        return TimewebState::readJson($name);
     }
 
     private function modelConfig(): array
@@ -39,8 +40,8 @@ class FuturesController extends Controller
             'threshold' => '10d EMA + 48h EMA пробой + каскадный тейк 3.0 / 5.5 ATR + пирамида',
             'leverage' => '7x (Ultra Championship, Risk 7.5%)',
             'stake' => 'до 60% маржи (макс. 2 позиции одновременно)',
-            'features' => '10d EMA фильтр Шварца, fast_bail (1–4ч при -0.8 ATR), каскадный тейк 20%/15%/65%',
-            'retrain' => 'почасовой контроль fast_bail / TP1 / TP2 + проверка соответствия сделок счёту',
+            'features' => 'Полный объём до одного выхода, пирамида +50% на +2 ATR, корзина 1x вне монет Шварца',
+            'retrain' => 'Каждые 5 минут сверка счёта, каждый час новые входы. Состояние пирамиды и корзины хранится в S3 Timeweb',
             'backtest' => $this->honestBacktest(),
         ];
     }

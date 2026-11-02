@@ -1,0 +1,204 @@
+{
+  "history": {
+    "ETHUSDT": {
+      "first": "2021-03-15",
+      "bars": 49302
+    },
+    "SOLUSDT": {
+      "first": "2021-10-15",
+      "bars": 44166
+    },
+    "XRPUSDT": {
+      "first": "2021-05-13",
+      "bars": 47877
+    },
+    "ADAUSDT": {
+      "first": "2021-03-18",
+      "bars": 49223
+    },
+    "AVAXUSDT": {
+      "first": "2021-09-15",
+      "bars": 44877
+    },
+    "LINKUSDT": {
+      "first": "2021-01-01",
+      "bars": 51054
+    },
+    "SUIUSDT": {
+      "first": "2023-05-03",
+      "bars": 30593
+    },
+    "BTCUSDT": {
+      "first": "2021-01-01",
+      "bars": 51054
+    }
+  },
+  "flat": {
+    "2022": {
+      "n": 158,
+      "total": 7041.2,
+      "mean": 44.56,
+      "ex5": -10.2,
+      "winrate": 25.9,
+      "best": 3685.8
+    },
+    "2023": {
+      "n": 136,
+      "total": -786.0,
+      "mean": -5.78,
+      "ex5": -57.78,
+      "winrate": 16.2,
+      "best": 1947.8
+    },
+    "2024": {
+      "n": 60,
+      "total": -2434.9,
+      "mean": -40.58,
+      "ex5": -77.57,
+      "winrate": 15.0,
+      "best": 1324.9
+    },
+    "2025": {
+      "n": 162,
+      "total": 9923.8,
+      "mean": 61.26,
+      "ex5": 1.9,
+      "winrate": 23.5,
+      "best": 2257.2
+    },
+    "2026H1": {
+      "n": 180,
+      "total": -975.4,
+      "mean": -5.42,
+      "ex5": -50.53,
+      "winrate": 22.2,
+      "best": 3503.6
+    },
+    "2026Q": {
+      "n": 94,
+      "total": 1593.5,
+      "mean": 16.95,
+      "ex5": -45.81,
+      "winrate": 24.5,
+      "best": 3421.1
+    }
+  },
+  "sides": {
+    "2022": {
+      "long": {
+        "n": 7,
+        "total": -503.3,
+        "mean": -71.9
+      },
+      "short": {
+        "n": 151,
+        "total": 7544.5,
+        "mean": 49.96
+      }
+    },
+    "2023": {
+      "long": {
+        "n": 27,
+        "total": 49.0,
+        "mean": 1.81
+      },
+      "short": {
+        "n": 109,
+        "total": -835.0,
+        "mean": -7.66
+      }
+    },
+    "2024": {
+      "long": {
+        "n": 37,
+        "total": -784.1,
+        "mean": -21.19
+      },
+      "short": {
+        "n": 23,
+        "total": -1650.8,
+        "mean": -71.77
+      }
+    },
+    "2025": {
+      "long": {
+        "n": 40,
+        "total": 737.7,
+        "mean": 18.44
+      },
+      "short": {
+        "n": 122,
+        "total": 9186.0,
+        "mean": 75.3
+      }
+    },
+    "2026H1": {
+      "long": {
+        "n": 39,
+        "total": -190.0,
+        "mean": -4.87
+      },
+      "short": {
+        "n": 141,
+        "total": -785.5,
+        "mean": -5.57
+      }
+    },
+    "2026Q": {
+      "long": {
+        "n": 19,
+        "total": 2340.8,
+        "mean": 123.2
+      },
+      "short": {
+        "n": 75,
+        "total": -747.4,
+        "mean": -9.97
+      }
+    }
+  },
+  "asymmetry": {
+    "2022": {
+      "n_total": 158,
+      "n_dropped": 3,
+      "dropped_total": -173.7,
+      "kept_mean": 46.55,
+      "all_mean": 44.56
+    },
+    "2023": {
+      "n_total": 136,
+      "n_dropped": 14,
+      "dropped_total": -919.3,
+      "kept_mean": 1.09,
+      "all_mean": -5.78
+    },
+    "2024": {
+      "n_total": 60,
+      "n_dropped": 25,
+      "dropped_total": 299.8,
+      "kept_mean": -78.13,
+      "all_mean": -40.58
+    },
+    "2025": {
+      "n_total": 162,
+      "n_dropped": 24,
+      "dropped_total": -1600.2,
+      "kept_mean": 83.51,
+      "all_mean": 61.26
+    },
+    "2026H1": {
+      "n_total": 180,
+      "n_dropped": 17,
+      "dropped_total": -1161.5,
+      "kept_mean": 1.14,
+      "all_mean": -5.42
+    },
+    "2026Q": {
+      "n_total": 94,
+      "n_dropped": 14,
+      "dropped_total": -855.6,
+      "kept_mean": 30.61,
+      "all_mean": 16.95
+    }
+  }
+}

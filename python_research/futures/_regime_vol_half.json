@@ -1,0 +1,87 @@
+{
+  "wins": 3,
+  "of": 5,
+  "rows": [
+    {
+      "period": "2024H2",
+      "rules": {
+        "ret": -5.31,
+        "final": 1893.72,
+        "dd": 14.9,
+        "n": 24
+      },
+      "skip70": {
+        "ret": -11.06,
+        "final": 1778.71,
+        "dd": 11.1,
+        "n": 13
+      },
+      "filt_better": false
+    },
+    {
+      "period": "2025H1",
+      "rules": {
+        "ret": 27.1,
+        "final": 2542.05,
+        "dd": 25.1,
+        "n": 35
+      },
+      "skip70": {
+        "ret": 30.09,
+        "final": 2601.86,
+        "dd": 29.1,
+        "n": 29
+      },
+      "filt_better": true
+    },
+    {
+      "period": "2025H2",
+      "rules": {
+        "ret": 187.2,
+        "final": 5744.09,
+        "dd": 57.3,
+        "n": 71
+      },
+      "skip70": {
+        "ret": 311.77,
+        "final": 8235.48,
+        "dd": 58.4,
+        "n": 67
+      },
+      "filt_better": true
+    },
+    {
+      "period": "2026H1",
+      "rules": {
+        "ret": 97.46,
+        "final": 3949.23,
+        "dd": 52.2,
+        "n": 107
+      },
+      "skip70": {
+        "ret": 70.02,
+        "final": 3400.49,
+        "dd": 47.1,
+        "n": 79
+      },
+      "filt_better": false
+    },
+    {
+      "period": "2026Q",
+      "rules": {
+        "ret": 167.94,
+        "final": 5358.8,
+        "dd": 17.0,
+        "n": 41
+      },
+      "skip70": {
+        "ret": 242.06,
+        "final": 6841.26,
+        "dd": 8.7,
+        "n": 26
+      },
+      "filt_better": true
+    }
+  ],
+  "change_bot": false
+}

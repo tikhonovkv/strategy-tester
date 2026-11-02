@@ -1,68 +1,119 @@
-"""Fetch fresh bars + funding to lab/fresh (workspace-writable), last ~50 days."""
-import json, time, urllib.request
+﻿"""Refresh the last hourly bars for every sleeve and Schwartz coin.
+
+load_coin() overlays LAB/fresh/{symbol}_fresh.json on the historical cache.
+This module keeps that overlay current for all 25 majors.
+"""
+from __future__ import annotations
+
+import json
+import time
+import urllib.request
 from pathlib import Path
 
-STATE = Path.home() / ".cursor" / "bybit-top25-scan-state"
-OUT = Path(r"C:\Users\123\Documents\deepseek-harness\bybit\lab") / "fresh"
-OUT.mkdir(parents=True, exist_ok=True)
-COINS = ["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","ADAUSDT","AVAXUSDT","LINKUSDT","SUIUSDT"]
+from causal import LAB
+
+DEST = LAB / "fresh"
+COINS = [
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
+    "ADAUSDT", "AVAXUSDT", "LINKUSDT", "SUIUSDT",
+    "LTCUSDT", "BCHUSDT", "DOTUSDT", "NEARUSDT", "ATOMUSDT",
+    "UNIUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "INJUSDT", "FILUSDT",
+    "TRXUSDT", "XLMUSDT", "ETCUSDT", "AAVEUSDT", "TIAUSDT",
+]
+HOUR = 3_600_000
+
 
 def get(url):
     req = urllib.request.Request(url, headers={"User-Agent": "bybit-top25-scan"})
-    with urllib.request.urlopen(req, timeout=25) as r:
-        return json.loads(r.read().decode("utf-8"))
+    with urllib.request.urlopen(req, timeout=25) as response:
+        return json.loads(response.read().decode("utf-8"))
+
 
 def fetch_bars(sym, start_ms, end_ms):
     out = {}
-    cursor = start_ms
-    while cursor < end_ms:
-        url = (f"https://api.bybit.com/v5/market/kline?category=linear&symbol={sym}&interval=60"
-               f"&limit=1000&start={cursor}&end={end_ms}")
+    cursor = int(end_ms)
+    guard = 0
+    while cursor > start_ms and guard < 8:
+        guard += 1
+        url = (
+            "https://api.bybit.com/v5/market/kline?category=linear&symbol="
+            + sym + "&interval=60&limit=1000&end=" + str(cursor)
+        )
         rows = (get(url).get("result") or {}).get("list") or []
         if not rows:
             break
-        for r in rows:
-            out[str(int(r[0]))] = [float(r[4]), float(r[6])]
-        newest = max(int(r[0]) for r in rows)
-        if newest <= cursor:
+        oldest = min(int(row[0]) for row in rows)
+        for row in rows:
+            ts = int(row[0])
+            if start_ms <= ts <= end_ms:
+                out[str(ts)] = [float(row[4]), float(row[6])]
+        if oldest >= cursor:
             break
-        cursor = newest + 3600000
-        time.sleep(0.05)
+        cursor = oldest - 1
+        time.sleep(0.04)
     return out
+
 
 def fetch_funding(sym, start_ms, end_ms):
     out = {}
-    cursor = start_ms
-    while cursor < end_ms:
-        url = (f"https://api.bybit.com/v5/market/funding/history?category=linear&symbol={sym}"
-               f"&limit=200&startTime={cursor}&endTime={end_ms}")
+    cursor = int(end_ms)
+    guard = 0
+    while cursor > start_ms and guard < 12:
+        guard += 1
+        url = (
+            "https://api.bybit.com/v5/market/funding/history?category=linear&symbol="
+            + sym + "&limit=200&endTime=" + str(cursor)
+        )
         rows = (get(url).get("result") or {}).get("list") or []
         if not rows:
             break
-        for r in rows:
-            out[str(int(r["fundingRateTimestamp"]))] = float(r["fundingRate"])
-        newest = max(int(r["fundingRateTimestamp"]) for r in rows)
-        if newest <= cursor:
+        oldest = min(int(row["fundingRateTimestamp"]) for row in rows)
+        for row in rows:
+            ts = int(row["fundingRateTimestamp"])
+            if start_ms <= ts <= end_ms:
+                out[str(ts)] = float(row["fundingRate"])
+        if oldest >= cursor:
             break
-        cursor = newest + 1
-        time.sleep(0.05)
+        cursor = oldest - 1
+        time.sleep(0.04)
     return out
 
-now = int(time.time() * 1000)
-start = now - 50 * 86400000
 
-for sym in COINS:
-    old = STATE / "pairs_cache" / f"{sym}.json"
-    if not old.exists():
-        print(sym, "no cache"); continue
-    blob = json.loads(old.read_text(encoding="utf-8"))
-    last_bar = max(int(k) for k in blob.get("bars", {})) if blob.get("bars") else 0
-    last_fund = max(int(k) for k in blob.get("funding", {})) if blob.get("funding") else 0
-    b0 = max(start, last_bar - 86400000)
-    f0 = max(start, last_fund - 86400000)
-    nb = fetch_bars(sym, b0, now)
-    nf = fetch_funding(sym, f0, now)
-    fresh = {"bars": nb, "funding": nf}
-    (OUT / f"{sym}_fresh.json").write_text(json.dumps(fresh), encoding="utf-8")
-    print(f"{sym}: bars +{len(nb)} funding +{len(nf)} last_bar {time.strftime('%m-%d', time.gmtime(max(int(k) for k in nb)/1000)) if nb else '-'}", flush=True)
-print("done")
+def _load(path: Path) -> dict:
+    if not path.exists():
+        return {"bars": {}, "funding": {}}
+    try:
+        blob = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"bars": {}, "funding": {}}
+    blob.setdefault("bars", {})
+    blob.setdefault("funding", {})
+    return blob
+
+
+def ensure_fresh(max_lag_ms: int = 2 * HOUR) -> None:
+    """Download only the hours missing from the fresh overlay."""
+    DEST.mkdir(parents=True, exist_ok=True)
+    now = int(time.time() * 1000)
+    for sym in COINS:
+        path = DEST / (sym + "_fresh.json")
+        blob = _load(path)
+        bars = blob["bars"]
+        funding = blob["funding"]
+        last_bar = max((int(key) for key in bars), default=0)
+        last_fund = max((int(key) for key in funding), default=0)
+        if last_bar and now - (last_bar + HOUR) <= max_lag_ms:
+            continue
+        bar_start = (last_bar + HOUR) if last_bar else now - 60 * 24 * HOUR
+        fund_start = (last_fund + 1) if last_fund else bar_start
+        added_bars = fetch_bars(sym, bar_start, now)
+        added_funds = fetch_funding(sym, fund_start, now)
+        bars.update(added_bars)
+        funding.update(added_funds)
+        path.write_text(json.dumps({"bars": bars, "funding": funding}), encoding="utf-8")
+        print(sym, "fresh bars", len(added_bars), "funding", len(added_funds), flush=True)
+
+
+if __name__ == "__main__":
+    ensure_fresh()
+    print("done", flush=True)

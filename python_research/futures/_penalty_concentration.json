@@ -1,0 +1,116 @@
+{
+  "book_final_lock": 46479.37,
+  "book_final_without_two": 43680.04,
+  "book_final_hourly": 34913.58,
+  "equity_gap": 11565.79,
+  "remaining_gap_without_two": 8766.46,
+  "locks_matched": 16,
+  "rest_locks": 14,
+  "rest_delta_sum": 10052.95,
+  "top10_delta_sum": 10152.82,
+  "top10_share_of_rest_delta": 1.01,
+  "top10": [
+    {
+      "time": "2026-08-18 11:00",
+      "sym": "ETHUSDT",
+      "side": 1,
+      "lock_pnl": 26677.09,
+      "hourly_pnl": 23343.99,
+      "delta": 3333.1,
+      "lock_reason": "lock",
+      "hourly_reason": "end_96h"
+    },
+    {
+      "time": "2026-02-10 03:00",
+      "sym": "ADAUSDT",
+      "side": -1,
+      "lock_pnl": 2239.32,
+      "hourly_pnl": -189.53,
+      "delta": 2428.85,
+      "lock_reason": "lock",
+      "hourly_reason": "breakeven"
+    },
+    {
+      "time": "2026-09-05 07:00",
+      "sym": "SOLUSDT",
+      "side": 1,
+      "lock_pnl": 1633.52,
+      "hourly_pnl": -72.4,
+      "delta": 1705.92,
+      "lock_reason": "lock",
+      "hourly_reason": "breakeven"
+    },
+    {
+      "time": "2026-06-01 05:00",
+      "sym": "ADAUSDT",
+      "side": -1,
+      "lock_pnl": 6180.12,
+      "hourly_pnl": 5402.96,
+      "delta": 777.16,
+      "lock_reason": "lock",
+      "hourly_reason": "end_96h"
+    },
+    {
+      "time": "2025-02-09 06:00",
+      "sym": "ADAUSDT",
+      "side": -1,
+      "lock_pnl": 559.47,
+      "hourly_pnl": -37.59,
+      "delta": 597.06,
+      "lock_reason": "lock",
+      "hourly_reason": "breakeven"
+    },
+    {
+      "time": "2024-11-15 20:00",
+      "sym": "SUIUSDT",
+      "side": 1,
+      "lock_pnl": 636.86,
+      "hourly_pnl": 107.43,
+      "delta": 529.43,
+      "lock_reason": "lock",
+      "hourly_reason": "end_96h"
+    },
+    {
+      "time": "2025-06-30 10:00",
+      "sym": "SOLUSDT",
+      "side": 1,
+      "lock_pnl": 441.23,
+      "hourly_pnl": -22.44,
+      "delta": 463.67,
+      "lock_reason": "lock",
+      "hourly_reason": "breakeven"
+    },
+    {
+      "time": "2026-01-12 02:00",
+      "sym": "ADAUSDT",
+      "side": 1,
+      "lock_pnl": 118.09,
+      "hourly_pnl": -31.01,
+      "delta": 149.1,
+      "lock_reason": "lock",
+      "hourly_reason": "breakeven"
+    },
+    {
+      "time": "2026-01-22 04:00",
+      "sym": "SUIUSDT",
+      "side": -1,
+      "lock_pnl": 98.25,
+      "hourly_pnl": 1.68,
+      "delta": 96.57,
+      "lock_reason": "lock",
+      "hourly_reason": "breakeven"
+    },
+    {
+      "time": "2025-04-24 11:00",
+      "sym": "ETHUSDT",
+      "side": 1,
+      "lock_pnl": 535.57,
+      "hourly_pnl": 463.61,
+      "delta": 71.96,
+      "lock_reason": "lock",
+      "hourly_reason": "end_96h"
+    }
+  ],
+  "concentrated": true,
+  "change_bot": false
+}

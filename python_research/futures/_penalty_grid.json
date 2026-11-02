@@ -1,0 +1,164 @@
+{
+  "hourly": {
+    "before_quarter": {
+      "final": 12700.7,
+      "ret": 535.03,
+      "dd": 61.6,
+      "n": 237
+    },
+    "quarter": {
+      "final": 5358.8,
+      "ret": 167.94,
+      "dd": 17.0,
+      "n": 41
+    },
+    "full_book": {
+      "final": 34913.58,
+      "ret": 1645.68,
+      "dd": 61.6,
+      "n": 278
+    }
+  },
+  "grid": [
+    {
+      "lock_w": 3,
+      "hold_w": 2,
+      "locks": 64,
+      "last_params": {
+        "thr": 0.6,
+        "min_profit": 1.2
+      },
+      "before_quarter": {
+        "final": 18399.86,
+        "ret": 819.99,
+        "dd": 57.5,
+        "n": 240
+      },
+      "quarter": {
+        "final": 2081.82,
+        "ret": 4.09,
+        "dd": 16.5,
+        "n": 42
+      },
+      "full_book": {
+        "final": 19534.79,
+        "ret": 876.74,
+        "dd": 57.5,
+        "n": 282
+      }
+    },
+    {
+      "lock_w": 5,
+      "hold_w": 2,
+      "locks": 67,
+      "last_params": {
+        "thr": 0.6,
+        "min_profit": 2.0
+      },
+      "before_quarter": {
+        "final": 5892.37,
+        "ret": 194.62,
+        "dd": 59.9,
+        "n": 245
+      },
+      "quarter": {
+        "final": 2147.82,
+        "ret": 7.39,
+        "dd": 18.6,
+        "n": 42
+      },
+      "full_book": {
+        "final": 6453.91,
+        "ret": 222.7,
+        "dd": 63.8,
+        "n": 287
+      }
+    },
+    {
+      "lock_w": 8,
+      "hold_w": 2,
+      "locks": 41,
+      "last_params": {
+        "thr": 0.75,
+        "min_profit": 1.2
+      },
+      "before_quarter": {
+        "final": 17115.83,
+        "ret": 755.79,
+        "dd": 57.8,
+        "n": 240
+      },
+      "quarter": {
+        "final": 1945.8,
+        "ret": -2.71,
+        "dd": 18.1,
+        "n": 42
+      },
+      "full_book": {
+        "final": 16983.69,
+        "ret": 749.18,
+        "dd": 64.5,
+        "n": 282
+      }
+    },
+    {
+      "lock_w": 5,
+      "hold_w": 4,
+      "locks": 66,
+      "last_params": {
+        "thr": 0.75,
+        "min_profit": 1.2
+      },
+      "before_quarter": {
+        "final": 21432.43,
+        "ret": 971.62,
+        "dd": 57.5,
+        "n": 240
+      },
+      "quarter": {
+        "final": 1984.29,
+        "ret": -0.79,
+        "dd": 16.5,
+        "n": 41
+      },
+      "full_book": {
+        "final": 21685.08,
+        "ret": 984.25,
+        "dd": 57.5,
+        "n": 281
+      }
+    },
+    {
+      "lock_w": 12,
+      "hold_w": 2,
+      "locks": 33,
+      "last_params": {
+        "thr": 0.6,
+        "min_profit": 1.2
+      },
+      "before_quarter": {
+        "final": 18948.54,
+        "ret": 847.43,
+        "dd": 57.9,
+        "n": 240
+      },
+      "quarter": {
+        "final": 4282.82,
+        "ret": 114.14,
+        "dd": 19.9,
+        "n": 41
+      },
+      "full_book": {
+        "final": 41427.82,
+        "ret": 1971.39,
+        "dd": 60.5,
+        "n": 281
+      }
+    }
+  ],
+  "chosen_by_pre_quarter_final": {
+    "lock_w": 5,
+    "hold_w": 4
+  },
+  "change_bot": false
+}

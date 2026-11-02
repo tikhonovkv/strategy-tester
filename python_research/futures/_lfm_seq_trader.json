@@ -1,0 +1,168 @@
+{
+  "logistic": {
+    "2023": {
+      "solo": {
+        "ret": 823.25,
+        "dd": 1.0,
+        "final": 18465.02,
+        "n": 712
+      },
+      "long_thr": 0.65,
+      "short_thr": 0.65
+    },
+    "2024": {
+      "solo": {
+        "ret": 532.77,
+        "dd": 1.6,
+        "final": 12655.39,
+        "n": 490
+      },
+      "long_thr": 0.7,
+      "short_thr": 0.7
+    },
+    "2025": {
+      "solo": {
+        "ret": 195.87,
+        "dd": 1.7,
+        "final": 5917.44,
+        "n": 318
+      },
+      "long_thr": 0.75,
+      "short_thr": 0.7
+    },
+    "2026H1": {
+      "solo": {
+        "ret": 137.58,
+        "dd": 0.9,
+        "final": 4751.52,
+        "n": 320
+      },
+      "long_thr": 0.65,
+      "short_thr": 0.75
+    },
+    "2026Q": {
+      "solo": {
+        "ret": 127.27,
+        "dd": 1.4,
+        "final": 4545.38,
+        "n": 307
+      },
+      "long_thr": 0.65,
+      "short_thr": 0.65
+    }
+  },
+  "hgb": {
+    "2023": {
+      "solo": {
+        "ret": 14598.7,
+        "dd": 0.8,
+        "final": 293974.02,
+        "n": 2821
+      },
+      "long_thr": 0.75,
+      "short_thr": 0.75
+    },
+    "2024": {
+      "solo": {
+        "ret": 28247.47,
+        "dd": 1.4,
+        "final": 566949.43,
+        "n": 3065
+      },
+      "long_thr": 0.75,
+      "short_thr": 0.75
+    },
+    "2025": {
+      "solo": {
+        "ret": 33672.89,
+        "dd": 1.0,
+        "final": 675457.84,
+        "n": 3088
+      },
+      "long_thr": 0.75,
+      "short_thr": 0.75
+    },
+    "2026H1": {
+      "solo": {
+        "ret": 1659.92,
+        "dd": 1.3,
+        "final": 35198.31,
+        "n": 1764
+      },
+      "long_thr": 0.75,
+      "short_thr": 0.75
+    },
+    "2026Q": {
+      "solo": {
+        "ret": 362.71,
+        "dd": 0.9,
+        "final": 9254.27,
+        "n": 893
+      },
+      "long_thr": 0.75,
+      "short_thr": 0.75
+    }
+  },
+  "shared": {
+    "2023": {
+      "book": {
+        "ret": 1173.11,
+        "dd": 6.2,
+        "final": 25462.13,
+        "n": 705
+      },
+      "head": "logistic",
+      "schwartz_ret": 81.83,
+      "schwartz_final": 3636.5,
+      "schwartz_dd": 34.7
+    },
+    "2024": {
+      "book": {
+        "ret": 496.55,
+        "dd": 1.6,
+        "final": 11931.09,
+        "n": 490
+      },
+      "head": "logistic",
+      "schwartz_ret": -13.69,
+      "schwartz_final": 1726.27,
+      "schwartz_dd": 13.7
+    },
+    "2025": {
+      "book": {
+        "ret": 635.82,
+        "dd": 30.0,
+        "final": 14716.46,
+        "n": 303
+      },
+      "head": "logistic",
+      "schwartz_ret": 233.06,
+      "schwartz_final": 6661.16,
+      "schwartz_dd": 54.2
+    },
+    "2026H1": {
+      "book": {
+        "ret": 506.73,
+        "dd": 23.0,
+        "final": 12134.55,
+        "n": 279
+      },
+      "head": "logistic",
+      "schwartz_ret": 195.12,
+      "schwartz_final": 5902.48,
+      "schwartz_dd": 39.7
+    },
+    "2026Q": {
+      "book": {
+        "ret": 547.55,
+        "dd": 7.9,
+        "final": 12951.0,
+        "n": 276
+      },
+      "head": "logistic",
+      "schwartz_ret": 250.18,
+      "schwartz_final": 7003.64,
+      "schwartz_dd": 12.1
+    }
+  }
+}

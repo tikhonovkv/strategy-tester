@@ -1,0 +1,133 @@
+{
+  "model": "MLP 8 features -> SL ATR and TP ATR. Fit only on trades closed before the entry. Scale chosen on the last 25% of that train. 3bps slip, taker 0.11%, wick SL/TP, pessimistic if both hit the same hour.",
+  "used_model": 710,
+  "warmup_fixed": 80,
+  "pred_sl_med": 4.21,
+  "pred_tp_med": 7.22,
+  "mlp": [
+    {
+      "period": "2024H2",
+      "n": 21,
+      "wr": 38.1,
+      "ret": 167.21,
+      "dd": 36.1,
+      "final": 5344.13
+    },
+    {
+      "period": "2025H1",
+      "n": 36,
+      "wr": 41.7,
+      "ret": 27.06,
+      "dd": 54.2,
+      "final": 2541.14
+    },
+    {
+      "period": "2025H2",
+      "n": 58,
+      "wr": 39.7,
+      "ret": 52.82,
+      "dd": 57.9,
+      "final": 3056.32
+    },
+    {
+      "period": "2026H1",
+      "n": 89,
+      "wr": 44.9,
+      "ret": 107.14,
+      "dd": 57.5,
+      "final": 4142.79
+    },
+    {
+      "period": "2026Q",
+      "n": 31,
+      "wr": 38.7,
+      "ret": -19.94,
+      "dd": 50.7,
+      "final": 1601.14
+    }
+  ],
+  "fixed_sl2.2_tp6": [
+    {
+      "period": "2024H2",
+      "n": 22,
+      "wr": 22.7,
+      "ret": 11.19,
+      "dd": 21.7,
+      "final": 2223.75
+    },
+    {
+      "period": "2025H1",
+      "n": 38,
+      "wr": 34.2,
+      "ret": -10.52,
+      "dd": 32.6,
+      "final": 1789.65
+    },
+    {
+      "period": "2025H2",
+      "n": 60,
+      "wr": 38.3,
+      "ret": 65.25,
+      "dd": 33.8,
+      "final": 3304.97
+    },
+    {
+      "period": "2026H1",
+      "n": 96,
+      "wr": 28.1,
+      "ret": -20.38,
+      "dd": 68.5,
+      "final": 1592.38
+    },
+    {
+      "period": "2026Q",
+      "n": 42,
+      "wr": 35.7,
+      "ret": -4.17,
+      "dd": 25.0,
+      "final": 1916.67
+    }
+  ],
+  "hourly_rules": [
+    {
+      "period": "2024H2",
+      "n": 24,
+      "wr": 8.3,
+      "ret": -5.31,
+      "dd": 14.9,
+      "final": 1893.72
+    },
+    {
+      "period": "2025H1",
+      "n": 35,
+      "wr": 14.3,
+      "ret": 27.1,
+      "dd": 25.1,
+      "final": 2542.05
+    },
+    {
+      "period": "2025H2",
+      "n": 71,
+      "wr": 18.3,
+      "ret": 187.2,
+      "dd": 57.3,
+      "final": 5744.09
+    },
+    {
+      "period": "2026H1",
+      "n": 107,
+      "wr": 16.8,
+      "ret": 97.46,
+      "dd": 52.2,
+      "final": 3949.23
+    },
+    {
+      "period": "2026Q",
+      "n": 41,
+      "wr": 14.6,
+      "ret": 167.94,
+      "dd": 17.0,
+      "final": 5358.8
+    }
+  ]
+}

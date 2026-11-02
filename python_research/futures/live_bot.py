@@ -25,9 +25,12 @@ from pathlib import Path
 
 from rest import BybitClient
 from causal import HOUR, LAB
-from schwartz_production import scan_live_schwartz, SHORT_NAME
+from carry_sleeve import CarrySleeve
+from fetch_fresh import ensure_fresh
+from schwartz_production import ALTS_7, scan_live_schwartz, size_multiplier, SHORT_NAME
 
 OUT = Path(os.environ.get("OUTPUT_DIR", str(LAB)))
+PERSIST_STATE = True
 
 
 def load_params() -> dict:
@@ -48,6 +51,12 @@ class FuturesTrader:
     def __init__(self, live: bool):
         self.live = live
         self.client = BybitClient()
+        self._wallet_cache: tuple[float, float, bool] | None = None
+        self._positions_cache: tuple[dict, bool] | None = None
+
+    def invalidate_account(self) -> None:
+        self._wallet_cache = None
+        self._positions_cache = None
 
     def has_keys(self) -> bool:
         try:
@@ -56,22 +65,56 @@ class FuturesTrader:
         except BaseException:
             return False
 
-    def usdt_free(self) -> float:
+    def wallet_snapshot(self) -> tuple[float, float, bool]:
+        """One wallet read per cache lifetime: equity, free margin, success."""
+        if self._wallet_cache is None:
+            self._wallet_cache = self._fetch_wallet()
+        return self._wallet_cache
+
+    def _fetch_wallet(self) -> tuple[float, float, bool]:
         if not self.has_keys():
-            return 2000.0
+            return 2000.0, 2000.0, True
         try:
             d = self.client.private_get("/v5/account/wallet-balance", {"accountType": "UNIFIED"})
             for acct in (d.get("result") or {}).get("list") or []:
-                for coin in acct.get("coin") or []:
-                    if str(coin.get("coin")) == "USDT":
-                        return float(coin.get("walletBalance") or 0) - float(coin.get("locked") or 0)
+                equity = float(acct.get("totalEquity") or 0)
+                available = float(acct.get("totalAvailableBalance") or 0)
+                if equity <= 0:
+                    for coin in acct.get("coin") or []:
+                        if str(coin.get("coin")) == "USDT":
+                            upl = float(coin.get("unrealisedPnl") or 0)
+                            equity = float(coin.get("equity") or 0) or (
+                                float(coin.get("walletBalance") or 0) + upl
+                            )
+                            break
+                return equity, max(0.0, available), True
         except Exception as exc:
             print("  wallet-balance err:", exc)
-        return 0.0
+        return 0.0, 0.0, False
+
+    def account_equity(self) -> float:
+        equity, _, ok = self.wallet_snapshot()
+        return equity if ok else 0.0
+
+    def available_margin(self) -> float:
+        _, available, ok = self.wallet_snapshot()
+        return available if ok else 0.0
+
+    def usdt_free(self) -> float:
+        return self.available_margin()
+
+    def positions_snapshot(self) -> tuple[dict, bool]:
+        if self._positions_cache is None:
+            self._positions_cache = self._fetch_positions()
+        return self._positions_cache
 
     def positions(self) -> dict:
+        rows, _ok = self.positions_snapshot()
+        return rows
+
+    def _fetch_positions(self) -> tuple[dict, bool]:
         if not self.has_keys():
-            return {}
+            return {}, True
         try:
             d = self.client.private_get("/v5/position/list", {"category": "linear", "settleCoin": "USDT"})
             out = {}
@@ -83,20 +126,19 @@ class FuturesTrader:
                     "side": 1 if str(r.get("side")) == "Buy" else -1,
                     "size": size,
                     "entry": float(r.get("avgPrice") or 0),
+                    "leverage": float(r.get("leverage") or 0),
                     "updated": int(r.get("updatedTime") or r.get("createdTime") or 0),
                     "created": int(r.get("createdTime") or r.get("updatedTime") or 0),
                 }
-            return out
+            return out, True
         except Exception as exc:
             print("  positions err:", exc)
-            return {}
+            return {}, False
 
-    def recover_open_ts(self, symbol: str, side: int, target_size: float, now_ms: int) -> int:
-        """Recover the actual entry timestamp of the currently open position from Bybit executions
-        by walking backwards until cumulative entry fills reach target_size. Never uses slot createdTime!
-        """
+    def recover_open_ts(self, symbol: str, side: int, target_size: float, now_ms: int) -> tuple[int, float, float]:
+        """First fill of the open position: time, price and size before any pyramid add."""
         if not self.has_keys():
-            return now_ms
+            return now_ms, 0.0, target_size
         want_side = "Buy" if side == 1 else "Sell"
         try:
             d = self.client.private_get(
@@ -115,20 +157,25 @@ class FuturesTrader:
                 reverse=True,
             )
             acc = 0.0
-            first_ts = now_ms
+            fills = []
             for r in rows:
                 if str(r.get("side")) == want_side:
                     q = float(r.get("execQty") or 0)
                     ts = int(r.get("execTime") or 0)
+                    px = float(r.get("execPrice") or 0)
                     if q > 0 and ts > 0:
                         acc += q
-                        first_ts = ts
+                        fills.append((ts, px, q))
                         if acc >= target_size * 0.95:
                             break
-            return first_ts
+            if not fills:
+                return now_ms, 0.0, target_size
+            first_ts, first_px, first_qty = fills[-1]
+            base_qty = first_qty if len(fills) > 1 else target_size
+            return first_ts, first_px, base_qty
         except Exception as exc:
             print("  recover_open_ts err:", symbol, exc)
-            return now_ms
+            return now_ms, 0.0, target_size
 
     def set_leverage(self, symbol: str, leverage: float):
         try:
@@ -195,31 +242,133 @@ def state_path() -> Path:
 
 
 def load_state() -> dict:
+    local = {}
     for d in (OUT, LAB):
         path = d / "futures_position_state.json"
         if path.exists():
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 if isinstance(data, dict) and data:
-                    return data
+                    local = data
+                    break
             except Exception:
                 pass
-    return {}
+    remote = {}
+    try:
+        import s3_storage
+        data = s3_storage.get_json("futures_position_state.json")
+        if isinstance(data, dict):
+            remote = data
+    except Exception as exc:
+        print("  s3 state read:", exc, flush=True)
+    if remote and not local:
+        return remote
+    return local
 
 
 def save_state(state: dict) -> None:
+    if not PERSIST_STATE:
+        return
     for d in {LAB, OUT}:
         tmp = d / "futures_position_state.json.tmp"
         tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, d / "futures_position_state.json")
+    try:
+        import s3_storage
+        s3_storage.put_json("futures_position_state.json", state)
+    except Exception as exc:
+        print("  s3 state write:", exc, flush=True)
+
+
+def close_journal(state: dict) -> list[dict]:
+    rows = [r for r in (state.get("_closes") or []) if isinstance(r, dict)]
+    rows.sort(key=lambda r: int(r.get("ts") or 0))
+    return rows
+
+
+def remember_close(state: dict, sym: str, ts: int, win: bool) -> None:
+    rows = close_journal(state)
+    rows.append({"sym": sym, "ts": int(ts), "win": bool(win)})
+    state["_closes"] = rows[-24:]
+
+
+def account_streaks(state: dict) -> tuple[int, int]:
+    loss = win = 0
+    for row in close_journal(state):
+        if row.get("win"):
+            loss = 0
+            win += 1
+        else:
+            win = 0
+            loss += 1
+    return loss, win
+
+
+def seed_close_journal(trader: "FuturesTrader") -> list[dict]:
+    """Last Schwartz-universe closes, so a restart keeps the loss streak."""
+    if not trader.has_keys():
+        return []
+    try:
+        payload = trader.client.private_get("/v5/position/closed-pnl", {"category": "linear", "limit": "50"})
+    except Exception as exc:
+        print("  closed-pnl streak seed failed:", exc, flush=True)
+        return []
+    allowed = set(ALTS_7)
+    rows = []
+    for row in (payload.get("result") or {}).get("list") or []:
+        sym = str(row.get("symbol") or "")
+        if sym not in allowed:
+            continue
+        ts = int(row.get("updatedTime") or row.get("createdTime") or 0)
+        # 1 Oct 2026 UTC: earlier alt closes are not this bot's streak.
+        if ts < 1790812800000:
+            continue
+        rows.append({
+            "sym": sym,
+            "ts": ts,
+            "win": float(row.get("closedPnl") or 0) > 0,
+        })
+    rows.sort(key=lambda r: r["ts"])
+    return rows[-24:]
+
+
+def lookup_closed_win(trader: "FuturesTrader", sym: str, opened_ts: int):
+    """Win/loss of a position that disappeared from the exchange. None if unknown."""
+    if not trader.has_keys():
+        return None
+    try:
+        payload = trader.client.private_get(
+            "/v5/position/closed-pnl",
+            {"category": "linear", "symbol": sym, "limit": "20"},
+        )
+    except Exception as exc:
+        print("  closed-pnl lookup failed:", sym, exc, flush=True)
+        return None
+    best = None
+    for row in (payload.get("result") or {}).get("list") or []:
+        ts = int(row.get("updatedTime") or row.get("createdTime") or 0)
+        if opened_ts and ts + 1000 < int(opened_ts):
+            continue
+        pnl = float(row.get("closedPnl") or 0)
+        if best is None or ts >= best[0]:
+            best = (ts, pnl > 0)
+    if best is None:
+        return None
+    return best[1]
 
 
 def main():
+    global PERSIST_STATE
     sys.stdout.reconfigure(encoding="utf-8")
     live = "--live" in sys.argv[1:]
+    PERSIST_STATE = live
     check = "--check" in sys.argv[1:]
     hourly_close = "--hourly-close" in sys.argv[1:]
     now = int(time.time() * 1000)
+    try:
+        ensure_fresh()
+    except Exception as exc:
+        print("  fresh bars skipped:", exc, flush=True)
     now_dt = datetime.now(timezone.utc)
     if now_dt.minute <= 7:
         hourly_close = True
@@ -228,12 +377,35 @@ def main():
     risk_pct = float(params.get("risk_pct", 0.075))
     max_margin_frac = float(params.get("max_margin_frac", 0.60))
     max_conc = int(params.get("max_conc", 2))
+    # Carry sleeve is on by default. The quarter is a bit lower than Schwartz alone;
+    # 2024 and 2025 are higher. Set enable_sleeve false to trade Schwartz only.
+    enable_sleeve = bool(params.get("enable_sleeve", True))
 
     trader = FuturesTrader(live)
     sigs, series = scan_live_schwartz(now)
-    pos = trader.positions()
-    free = trader.usdt_free()
+    exchange_pos, pos_ok = trader.positions_snapshot()
+    equity, free, wallet_ok = trader.wallet_snapshot()
+    sleeve = CarrySleeve(trader) if enable_sleeve else None
     state = load_state()
+    snapshot_ok = (not trader.has_keys()) or (pos_ok and wallet_ok)
+    if sleeve and snapshot_ok:
+        sleeve.reconcile(state, exchange_pos)
+        book = sleeve.book(state)
+        if not book["legs"]:
+            for sym, row in exchange_pos.items():
+                if sym in ALTS_7 or sym == "BTCUSDT":
+                    continue
+                if abs(float(row.get("leverage") or 0) - 1.0) > 0.2:
+                    continue
+                book["legs"][sym] = {
+                    "side": int(row["side"]),
+                    "qty": float(row["size"]),
+                    "px": float(row["entry"]),
+                }
+    sleeve_syms = sleeve.symbols(state) if sleeve else set()
+    pos = {sym: row for sym, row in exchange_pos.items() if sym not in sleeve_syms}
+    equity = trader.account_equity()
+    free = trader.available_margin()
 
     # Build live regime & checklist for the dashboard so the user sees strategy status in real time
     btc_s = series.get("BTCUSDT")
@@ -288,21 +460,42 @@ def main():
         tmp = d / "futures_signals.json.tmp"
         tmp.write_text(json.dumps(sig_payload, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, d / "futures_signals.json")
+    try:
+        import s3_storage
+        s3_storage.put_json("futures_signals.json", sig_payload)
+    except Exception as exc:
+        print("  s3 signals:", exc, flush=True)
 
     print(
-        "[{}] USDT free={:.2f} open={} signals={} BTC={:.1f} ({})".format(
-            sig_payload["mode"], free, len(pos), len(sigs), btc_px, btc_regime
+        "[{}] USDT free={:.2f} equity={:.2f} open={} signals={} BTC={:.1f} ({}) sleeve={}".format(
+            sig_payload["mode"], free, equity, len(pos), len(sigs), btc_px, btc_regime,
+            "on" if enable_sleeve else "off",
         ),
         flush=True,
     )
 
-    if check:
+    if check or not snapshot_ok:
+        if not snapshot_ok:
+            print("  exchange snapshot failed, state left unchanged", flush=True)
         return
 
     # 1. Manage open positions according to Schwartz rules
     # Clean stale state entries for symbols that are no longer open on the exchange
+    if not close_journal(state):
+        seeded = seed_close_journal(trader)
+        if seeded:
+            state["_closes"] = seeded
+            save_state(state)
+
     for stale_sym in list(state.keys()):
-        if stale_sym not in pos:
+        if str(stale_sym).startswith("_"):
+            continue
+        if stale_sym not in pos and stale_sym not in sleeve_syms:
+            row = state.get(stale_sym) or {}
+            win = lookup_closed_win(trader, stale_sym, int(row.get("opened") or 0))
+            if win is not None:
+                remember_close(state, stale_sym, now, win)
+                print(f"  EXTERNAL CLOSE {stale_sym} win={win}", flush=True)
             state.pop(stale_sym, None)
 
     for sym, p in list(pos.items()):
@@ -310,11 +503,11 @@ def main():
         s_coin = series.get(sym)
         series_atr = float(s_coin["atr1h"][-1]) if s_coin and len(s_coin["atr1h"]) else 0.008
         if not st.get("opened") or int(st.get("side") or p["side"]) != p["side"]:
-            rec_ts = trader.recover_open_ts(sym, p["side"], p["size"], now)
+            rec_ts, rec_px, rec_base = trader.recover_open_ts(sym, p["side"], p["size"], now)
             st = {
                 "opened": rec_ts,
-                "entry_px": p["entry"],
-                "base_qty": st.get("base_qty") or p["size"],
+                "entry_px": rec_px or p["entry"],
+                "base_qty": rec_base or p["size"],
                 "atr": float(st.get("atr") or series_atr),
                 "side": p["side"],
                 "pyr_done": bool(st.get("pyr_done", False)),
@@ -325,7 +518,7 @@ def main():
             print(f"  RECOVERED STATE {sym} opened={rec_ts} ({round((now - rec_ts)/3600000.0, 1)}h ago)", flush=True)
         opened = int(st["opened"])
         held_h = max(0.0, (now - opened) / 3600000.0)
-        entry_px = float(p["entry"] or st.get("entry_px") or 0.0)
+        entry_px = float(st.get("entry_px") or p["entry"] or 0.0)
         atr = float(st.get("atr") or series_atr)
         cur_px = trader.price(sym)
         if cur_px <= 0 or entry_px <= 0:
@@ -362,6 +555,9 @@ def main():
                 except Exception as exc:
                     print(f"  CLOSE {sym} order failed: {exc}", flush=True)
                     continue
+            avg_px = float(p["entry"] or entry_px)
+            move_avg = p["side"] * (cur_px / avg_px - 1.0) if avg_px > 0 else move
+            remember_close(state, sym, now, move_avg > 0.0011)
             state.pop(sym, None)
             pos.pop(sym, None)
             save_state(state)
@@ -374,30 +570,35 @@ def main():
             lot = float((trader.instrument(sym).get("lotSizeFilter") or {}).get("qtyStep") or 0)
             if lot > 0:
                 q_pyr = int(q_pyr / lot) * lot
-            used_now = sum((pos_v["size"] * pos_v["entry"]) / max(leverage, 1.0) for pos_v in pos.values())
-            avail_pyr = max(0.0, free - used_now)
+            trader.invalidate_account()
+            avail_pyr = trader.available_margin()
             need_pyr_margin = (q_pyr * cur_px) / max(leverage, 1.0)
+            if sleeve and need_pyr_margin > avail_pyr and cur_px > 0:
+                sleeve.release(state, need_pyr_margin - avail_pyr)
+                trader.invalidate_account()
+                avail_pyr = trader.available_margin()
             if need_pyr_margin > avail_pyr * 0.90 and cur_px > 0:
                 q_pyr = (avail_pyr * 0.90 * leverage) / cur_px
                 if lot > 0:
                     q_pyr = int(q_pyr / lot) * lot
             if q_pyr > 0 and (q_pyr * cur_px) / max(leverage, 1.0) >= 10.0:
-                if live:
-                    try:
-                        trader.market_order(sym, p["side"], q_pyr, reduce_only=False)
-                    except Exception as exc:
-                        print(f"  PYRAMID {sym} order failed: {exc}", flush=True)
-                        continue
+                print(f"  PYRAMID (+2.0 ATR) {sym} added 50% qty={q_pyr} at {cur_px}", flush=True)
+                if not live:
+                    continue
+                try:
+                    trader.market_order(sym, p["side"], q_pyr, reduce_only=False)
+                except Exception as exc:
+                    print(f"  PYRAMID {sym} order failed: {exc}", flush=True)
+                    continue
                 st["pyr_done"] = True
                 st["pyr_px"] = cur_px
                 state[sym] = st
                 save_state(state)
-                print(f"  PYRAMID (+2.0 ATR) {sym} added 50% qty={q_pyr} at {cur_px}", flush=True)
 
     # 2. Open new positions ONLY on the hourly candle close check
-    equity = free
-    used_margin = sum((p["size"] * p["entry"]) / max(leverage, 1.0) for p in pos.values())
-    rem_free = max(0.0, free - used_margin)
+    trader.invalidate_account()
+    equity = trader.account_equity()
+    rem_free = trader.available_margin()
     for s in (sigs if hourly_close else []):
         if len(pos) >= max_conc:
             break
@@ -409,8 +610,30 @@ def main():
             continue
         atr = max(float(s["atr"]), 0.005)
         stop_dist = max(1.6 * atr, 0.008)
-        target_notional = (equity * risk_pct) / stop_dist
-        margin = min(target_notional / leverage, equity * max_margin_frac, rem_free * 0.90)
+        loss_streak, win_streak = account_streaks(state)
+        mult = size_multiplier(
+            loss_streak,
+            win_streak,
+            int(s.get("c_lstreak") or 0),
+            float(s.get("hot_avg") or 0.0),
+        )
+        target_notional = (equity * risk_pct * mult) / stop_dist
+        sleeve_m = sleeve.margin(state) if sleeve else 0.0
+        raw_margin = min(
+            target_notional / leverage,
+            equity * max_margin_frac,
+            (rem_free + sleeve_m) * 0.90,
+        )
+        if sleeve:
+            buffer = 0.50 * raw_margin
+            if raw_margin + buffer > rem_free:
+                sleeve.release(state, raw_margin + buffer - rem_free)
+                trader.invalidate_account()
+                rem_free = trader.available_margin()
+                equity = trader.account_equity()
+            margin = min(raw_margin, max(0.0, rem_free - buffer), rem_free * 0.90)
+        else:
+            margin = min(raw_margin, rem_free * 0.90)
         if margin < 15.0:
             continue
         qty = margin * leverage / px
@@ -420,12 +643,13 @@ def main():
         if qty <= 0:
             continue
         print(
-            "  OPEN {} {} qty={:.4f} margin=${:.1f} lev={:.0f}x tp1={} bail={}".format(
+            "  OPEN {} {} qty={:.4f} margin=${:.1f} lev={:.0f}x mult={:.2f} tp1={} bail={}".format(
                 s["coin"],
                 "LONG" if s["side"] == 1 else "SHORT",
                 qty,
                 margin,
                 leverage,
+                mult,
                 s["tp1_px"],
                 s["fast_bail_px"],
             ),
@@ -452,6 +676,22 @@ def main():
         }
         pos[sym] = {"side": s["side"], "size": qty, "entry": px, "updated": now}
         save_state(state)
+
+    if sleeve and hourly_close:
+        trader.invalidate_account()
+        rem_free = trader.available_margin()
+        buffer = 0.0
+        for sym, row in pos.items():
+            held = state.get(sym) or {}
+            if held.get("pyr_done"):
+                continue
+            base_qty = float(held.get("base_qty") or row["size"])
+            held_px = float(held.get("entry_px") or row["entry"])
+            held_atr = float(held.get("atr") or 0.0)
+            side = int(row["side"])
+            px_at_add = held_px * (1.0 + side * 2.0 * held_atr) if held_atr > 0 else held_px
+            buffer += 0.50 * base_qty * max(px_at_add, 0.0) / max(leverage, 1.0)
+        sleeve.park(state, max(0.0, rem_free - buffer), now)
 
     save_state(state)
 

@@ -1,9 +1,9 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """1x carry/momentum sleeve the one-way Bybit account can actually hold.
 
-Three longs and three shorts, refreshed every 48 hours. The basket never
-includes BTC or the seven Schwartz alts, so a sleeve leg cannot net into a
-Schwartz position. Only the weight that changed is sent as an order.
+Three longs and three shorts, refreshed every 48 hours, with a -3.0% basket
+stop-loss checked every 5 minutes. The basket never includes BTC or the seven
+Schwartz alts, so a sleeve leg cannot net into a Schwartz position.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import schwartz_trader as st
 
 HOLD_MS = 48 * 3600 * 1000
 MIN_NOTIONAL = 15.0
+BASKET_STOP = 0.030  # Close all 6 legs if combined basket PnL reaches -3.0%
 BANNED = set(sp.ALTS_7) | {"BTCUSDT"}
 
 
@@ -78,10 +79,11 @@ class CarrySleeve:
     def book(self, state) -> dict:
         raw = state.get("_sleeve")
         if not isinstance(raw, dict):
-            raw = {"rebalance_ts": 0, "legs": {}}
+            raw = {"rebalance_ts": 0, "stopped_ts": -1, "legs": {}}
             state["_sleeve"] = raw
         raw.setdefault("legs", {})
         raw.setdefault("rebalance_ts", 0)
+        raw.setdefault("stopped_ts", -1)
         return raw
 
     def symbols(self, state) -> set:
@@ -96,7 +98,7 @@ class CarrySleeve:
         return total
 
     def reconcile(self, state, exchange_pos: dict) -> None:
-        """Trust the exchange size for legs this sleeve opened."""
+        """Trust the exchange size and average entry price for legs this sleeve opened."""
         if not self.trader.has_keys():
             return
         legs = self.book(state)["legs"]
@@ -107,6 +109,41 @@ class CarrySleeve:
             ex = exchange_pos[sym]
             legs[sym]["qty"] = float(ex["size"])
             legs[sym]["side"] = int(ex["side"])
+            if float(ex.get("entry") or 0) > 0:
+                legs[sym]["px"] = float(ex["entry"])
+
+    def check_stop(self, state, now_ms: int) -> bool:
+        """Close all sleeve legs if combined basket PnL reaches -3.0% of entry notional."""
+        book = self.book(state)
+        legs = book["legs"]
+        if not legs:
+            return False
+        total_entry = 0.0
+        unreal_pnl = 0.0
+        for sym, leg in list(legs.items()):
+            qty = abs(float(leg.get("qty") or 0.0))
+            entry_px = float(leg.get("px") or 0.0)
+            cur_px = self._price(sym, leg)
+            side = int(leg.get("side") or 1)
+            if qty <= 0 or entry_px <= 0 or cur_px <= 0:
+                continue
+            entry_notional = qty * entry_px
+            total_entry += entry_notional
+            unreal_pnl += side * qty * (cur_px - entry_px)
+        if total_entry <= MIN_NOTIONAL:
+            return False
+        ret = unreal_pnl / total_entry
+        if ret > -BASKET_STOP:
+            return False
+        print(
+            f"  SLEEVE STOP ({ret*100:+.2f}% <= -{BASKET_STOP*100:.1f}%) closing {len(legs)} legs (pnl=${unreal_pnl:+.2f})",
+            flush=True,
+        )
+        for sym in list(legs):
+            self._flatten(sym, legs)
+        if self.trader.live:
+            book["stopped_ts"] = int(book.get("rebalance_ts") or now_ms)
+        return True
 
     def release(self, state, need: float) -> float:
         """Close part of the basket until about `need` USDT of margin comes back."""
@@ -160,10 +197,14 @@ class CarrySleeve:
         if stale_h > 6.0:
             print("  SLEEVE skip orders, hourly cache is older than 6 hours", flush=True)
             return
-        if deployable < MIN_NOTIONAL and not self.book(state)["legs"]:
-            return
         book = self.book(state)
-        due = int(now_ms) - int(book.get("rebalance_ts") or 0) >= HOLD_MS
+        reb_ts = int(book.get("rebalance_ts") or 0)
+        due = int(now_ms) - reb_ts >= HOLD_MS
+        if not due and reb_ts > 0 and int(book.get("stopped_ts") or -1) == reb_ts:
+            print("  SLEEVE waiting for next 48h slot after basket_stop", flush=True)
+            return
+        if deployable < MIN_NOTIONAL and not book["legs"]:
+            return
         if book["legs"] and not due:
             self._scale_in(state, max(0.0, deployable))
             return
@@ -209,6 +250,7 @@ class CarrySleeve:
                 self._flatten(sym, legs)
             if self.trader.live:
                 book["rebalance_ts"] = now_ms
+                book["stopped_ts"] = -1
             return
         targets = {sym: w * equity for sym, w in weights.items()}
         for sym in list(current):
@@ -238,6 +280,7 @@ class CarrySleeve:
                     legs[sym] = {"side": 1 if signed_notional > 0 else -1, "qty": new_qty, "px": px}
         if self.trader.live:
             book["rebalance_ts"] = now_ms
+            book["stopped_ts"] = -1
 
     def _flatten(self, sym, legs) -> None:
         leg = legs.get(sym)
@@ -310,7 +353,7 @@ class CarrySleeve:
 
 
 def export_compare_book(cands, windows, end_ms: int) -> None:
-    """Write the sleeve legs and the combined Schwartz-plus-sleeve curve."""
+    """Write the sleeve legs, combined Schwartz trades, and unified equity curve."""
     import json
     from datetime import datetime, timezone
 
@@ -329,27 +372,27 @@ def export_compare_book(cands, windows, end_ms: int) -> None:
             stamp = datetime.fromtimestamp(int(ts) / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")
             curve.append([stamp, round((float(eq) / 2000.0 - 1.0) * 100.0, 2)])
         trades = []
-        curve_pts = list(res.get("curve") or [])
-        seen = 0
-        eq = 2000.0
         for leg in res.get("sleeve_trades") or []:
             row = dict(leg)
-            before = max(1.0, float(row.get("margin") or 1.0))
-            row["pnl_pct"] = round(float(row.get("pnl_usd") or 0.0) / before * 100.0, 2)
-            exit_ts = int(row.get("exit_ts") or 0)
-            while seen < len(curve_pts) and int(curve_pts[seen][0]) <= exit_ts:
-                eq = float(curve_pts[seen][1])
-                seen += 1
-            row["eq"] = round(eq, 2)
+            row.pop("pnl_exact", None)
             trades.append(row)
+        schwartz_trades = []
+        for tr in res.get("schwartz_trades") or []:
+            row = dict(tr)
+            row.pop("pnl_exact", None)
+            schwartz_trades.append(row)
         payload[tag] = {
             "return_pct": res["ret"],
             "max_dd_pct": res["dd"],
             "final": res["final"],
             "equity_pct": curve,
             "trades": trades,
+            "schwartz_trades": schwartz_trades,
         }
-        print(f"sleeve {tag}: legs={len(trades)} combined={res['ret']:+.2f}%", flush=True)
+        print(
+            f"sleeve {tag}: legs={len(trades)} schwartz={len(schwartz_trades)} combined={res['ret']:+.2f}% dd={res['dd']:.1f}%",
+            flush=True,
+        )
     for folder in {sp.LAB, sp.OUT}:
         folder.mkdir(parents=True, exist_ok=True)
         dest = folder / "sleeve_compare.json"

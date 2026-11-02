@@ -394,6 +394,7 @@ def main():
         sleeve.reconcile(state, exchange_pos)
         book = sleeve.book(state)
         if not book["legs"]:
+            adopted_ts = 0
             for sym, row in exchange_pos.items():
                 if sym in ALTS_7 or sym == "BTCUSDT":
                     continue
@@ -404,6 +405,9 @@ def main():
                     "qty": float(row["size"]),
                     "px": float(row["entry"]),
                 }
+                adopted_ts = max(adopted_ts, int(row.get("updated") or row.get("created") or 0))
+            if book["legs"] and not int(book.get("rebalance_ts") or 0):
+                book["rebalance_ts"] = adopted_ts or now
     sleeve_syms = sleeve.symbols(state) if sleeve else set()
     pos = {sym: row for sym, row in exchange_pos.items() if sym not in sleeve_syms}
     equity = trader.account_equity()
@@ -480,6 +484,11 @@ def main():
         if not snapshot_ok:
             print("  exchange snapshot failed, state left unchanged", flush=True)
         return
+
+    # 0. Check -3.0% basket stop on every 5m tick
+    if sleeve and sleeve.check_stop(state, now):
+        trader.invalidate_account()
+        save_state(state)
 
     # 1. Manage open positions according to Schwartz rules
     # Clean stale state entries for symbols that are no longer open on the exchange

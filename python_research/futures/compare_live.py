@@ -292,6 +292,13 @@ def render_html(periods):
     for label, tag, days in periods:
         bt, raw_j = load_backtest(tag)
         sleeve = load_sleeve(tag)
+        if sleeve.get("schwartz_trades"):
+            bt = []
+            for tr in sleeve["schwartz_trades"]:
+                row = dict(tr)
+                row["ts"] = int(row.get("t") or row.get("ts") or 0)
+                row["book"] = "schwartz"
+                bt.append(row)
         for leg in sleeve.get("trades") or []:
             row = dict(leg)
             row["ts"] = int(row.get("t") or row.get("ts") or 0)

@@ -276,7 +276,7 @@ class CarrySleeve:
             return True
         except Exception as exc:
             text = str(exc).lower()
-            if any(token in text for token in ("110026", "110043", "not modified", "not change", "same")):
+            if any(token in text for token in ("110026", "110043", "100028", "not modified", "not change", "same")):
                 return True
             print(f"  sleeve isolated {sym} failed: {exc}", flush=True)
             return False

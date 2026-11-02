@@ -159,6 +159,8 @@ class FuturesTrader:
             acc = 0.0
             fills = []
             for r in rows:
+                if str(r.get("execType") or "Trade") != "Trade":
+                    continue
                 if str(r.get("side")) == want_side:
                     q = float(r.get("execQty") or 0)
                     ts = int(r.get("execTime") or 0)

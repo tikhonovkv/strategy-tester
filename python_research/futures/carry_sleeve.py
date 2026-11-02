@@ -145,6 +145,45 @@ class CarrySleeve:
             book["stopped_ts"] = int(book.get("rebalance_ts") or now_ms)
         return True
 
+    def arm_exchange_stops(self, state) -> bool:
+        """Put a Bybit stop on each leg. One leg moving 18% costs 3% of the basket."""
+        if not self.trader.live or not self.trader.has_keys():
+            return False
+        legs = self.book(state)["legs"]
+        adverse = BASKET_STOP * 6.0
+        changed = False
+        for sym, leg in list(legs.items()):
+            entry = float(leg.get("px") or 0.0)
+            side = int(leg.get("side") or 0)
+            if entry <= 0 or side == 0:
+                continue
+            px = self._round_price(sym, entry * (1.0 - side * adverse))
+            if px <= 0 or abs(float(leg.get("stop") or 0.0) - px) < 1e-12:
+                continue
+            try:
+                self.trader.client.private_post(
+                    "/v5/position/trading-stop",
+                    {
+                        "category": "linear",
+                        "symbol": sym,
+                        "tpslMode": "Full",
+                        "positionIdx": 0,
+                        "stopLoss": str(px),
+                        "slTriggerBy": "MarkPrice",
+                    },
+                )
+            except Exception as exc:
+                text = str(exc).lower()
+                if any(token in text for token in ("not modified", "34040")):
+                    leg["stop"] = px
+                    continue
+                print(f"  SLEEVE stop {sym} failed: {exc}", flush=True)
+                continue
+            leg["stop"] = px
+            changed = True
+            print(f"  SLEEVE stop {sym} {px} ({-adverse * 100:.0f}% цены)", flush=True)
+        return changed
+
     def release(self, state, need: float) -> float:
         """Close part of the basket until about `need` USDT of margin comes back."""
         if need <= 1.0:
@@ -210,6 +249,7 @@ class CarrySleeve:
             return
         weights = weights_now
         self._rebalance(state, weights, max(0.0, deployable), int(now_ms))
+        self.arm_exchange_stops(state)
 
     def _scale_in(self, state, amount: float) -> None:
         if amount < MIN_NOTIONAL:
@@ -291,6 +331,16 @@ class CarrySleeve:
             self._order(sym, -int(leg.get("side") or 1), qty, reduce_only=True)
         if self.trader.live:
             legs.pop(sym, None)
+
+    def _round_price(self, sym, price: float) -> float:
+        tick = float((self.trader.instrument(sym).get("priceFilter") or {}).get("tickSize") or 0)
+        if tick <= 0:
+            return round(price, 6)
+        steps = round(price / tick)
+        raw = steps * tick
+        text = f"{tick:.10f}".rstrip("0")
+        decimals = len(text.split(".")[1]) if "." in text else 0
+        return round(raw, decimals)
 
     def _price(self, sym, leg) -> float:
         try:

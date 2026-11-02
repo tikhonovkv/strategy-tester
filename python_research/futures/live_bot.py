@@ -489,6 +489,8 @@ def main():
     if sleeve and sleeve.check_stop(state, now):
         trader.invalidate_account()
         save_state(state)
+    elif sleeve and sleeve.arm_exchange_stops(state):
+        save_state(state)
 
     # 1. Manage open positions according to Schwartz rules
     # Clean stale state entries for symbols that are no longer open on the exchange

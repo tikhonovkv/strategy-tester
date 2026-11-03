@@ -16,6 +16,7 @@ Route::post('/pin', function (Request $request) {
 
 Route::get('/', [FuturesController::class, 'dashboard'])->name('home');
 Route::get('/futures', [FuturesController::class, 'dashboard'])->name('futures');
+Route::get('/bot', [FuturesController::class, 'story'])->name('bot');
 Route::get('/futures/compare', [FuturesController::class, 'compare'])->name('futures.compare');
 Route::get('/autonomous', [SiteController::class, 'autonomous'])->name('autonomous');
 Route::post('/autonomous/settings', [SiteController::class, 'saveSettings'])->name('autonomous.settings');

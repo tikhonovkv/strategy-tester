@@ -118,6 +118,7 @@
   <div class="topbar">
     <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap">
       <h1 style="font-size:15px; margin:0">Чемпионат Шварца 7x · Сверка Счёта и Стратегии</h1>
+      <a href="{{ route('bot') }}" class="btn" style="padding:6px 12px; font-size:12px">Как работает бот</a>
       <div class="mode-switch">
         <button class="mbtn active-real" id="modeRealBtn">1. Реальный счёт Bybit</button>
         <button class="mbtn" id="modeBtBtn">2. Расчёт стратегии (Бэктест)</button>

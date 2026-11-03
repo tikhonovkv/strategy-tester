@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\BotStory;
 use App\Services\TimewebState;
 use Illuminate\Http\Request;
 
@@ -80,5 +81,14 @@ class FuturesController extends Controller
         return view('site.futures_compare', [
             'compare' => $this->readJson('futures_compare.json'),
         ]);
+    }
+
+    public function story()
+    {
+        $story = (new BotStory(base_path()))->build(
+            $this->readJson('sleeve_compare.json'),
+            $this->readJson('futures_compare.json')
+        );
+        return view('site.bot', ['story' => $story]);
     }
 }

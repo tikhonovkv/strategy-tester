@@ -2,7 +2,17 @@
 
 use App\Http\Controllers\FuturesController;
 use App\Http\Controllers\SiteController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+
+Route::post('/pin', function (Request $request) {
+    if ((string) $request->input('pin') === '540502') {
+        $request->session()->put('pin_ok', true);
+        return redirect('/');
+    }
+    $request->session()->flash('pin_bad', true);
+    return redirect('/');
+});
 
 Route::get('/', [FuturesController::class, 'dashboard'])->name('home');
 Route::get('/futures', [FuturesController::class, 'dashboard'])->name('futures');

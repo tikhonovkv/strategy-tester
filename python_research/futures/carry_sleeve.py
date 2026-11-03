@@ -22,6 +22,8 @@ UNLEV_STOP = 0.025  # -2.5% unlevered basket move = -7.5% of margin at 3x
 QUIET_DAYS = 5.0
 MAX_RECENT_TRADES = 1
 RECENT_WINDOW_D = 14.0
+STOP_STREAK_LIMIT = 2
+STOP_COOLDOWN_H = 144.0
 BANNED = set(sp.ALTS_7) | {"BTCUSDT"}
 
 
@@ -91,6 +93,8 @@ class CarrySleeve:
         raw.setdefault("legs", {})
         raw.setdefault("rebalance_ts", 0)
         raw.setdefault("stopped_ts", -1)
+        raw.setdefault("stop_streak", 0)
+        raw.setdefault("cooldown_until", 0)
         return raw
 
     def symbols(self, state) -> set:
@@ -115,7 +119,7 @@ class CarrySleeve:
         quiet_d = max(0.0, (int(now_ms) - last_ts) / 86400000.0) if last_ts > 0 else 999.0
         recent_cnt = sum(
             1 for r in closes
-            if int(now_ms) - int(r.get("ts") or 0) <= RECENT_WINDOW_D * 86400000.0
+            if int(now_ms) - int(r.get("opened_ts") or r.get("ts") or 0) <= RECENT_WINDOW_D * 86400000.0
         )
         ok = (quiet_d >= QUIET_DAYS) and (recent_cnt <= MAX_RECENT_TRADES)
         return ok, round(quiet_d, 1), recent_cnt
@@ -175,6 +179,14 @@ class CarrySleeve:
             self._flatten(sym, legs)
         if self.trader.live:
             book["stopped_ts"] = int(book.get("rebalance_ts") or now_ms)
+            streak = int(book.get("stop_streak") or 0) + 1
+            book["stop_streak"] = streak
+            if streak >= STOP_STREAK_LIMIT:
+                book["cooldown_until"] = int(now_ms) + int(STOP_COOLDOWN_H * 3600 * 1000)
+                print(
+                    f"  SLEEVE cooldown {STOP_COOLDOWN_H:.0f}h after {streak} basket stops",
+                    flush=True,
+                )
         return True
 
     def arm_exchange_stops(self, state) -> bool:
@@ -227,11 +239,22 @@ class CarrySleeve:
     def park(self, state, deployable: float, now_ms: int, schwartz_open_count: int = 0) -> None:
         """Deploy into the 3x basket ONLY when Schwartz is in a flat-market drought."""
         drought_ok, quiet_d, recent_cnt = self.is_drought(state, schwartz_open_count, now_ms)
+        book = self.book(state)
+        if schwartz_open_count > 0:
+            book["stop_streak"] = 0
         if not drought_ok:
-            if self.book(state)["legs"]:
+            if book["legs"]:
                 self.flatten_all(state, reason=f"schwartz_active quiet={quiet_d}d recent14d={recent_cnt}")
             else:
                 print(f"  SLEEVE standby (drought=off: quiet={quiet_d}d < {QUIET_DAYS}d or recent14d={recent_cnt} > {MAX_RECENT_TRADES})", flush=True)
+            return
+        cooldown_until = int(book.get("cooldown_until") or 0)
+        if int(now_ms) < cooldown_until:
+            left_h = (cooldown_until - int(now_ms)) / 3600000.0
+            if book["legs"]:
+                self.flatten_all(state, reason=f"stop_cooldown {left_h:.1f}h")
+            else:
+                print(f"  SLEEVE cooldown {left_h:.1f}h after {STOP_STREAK_LIMIT} basket stops", flush=True)
             return
 
         series = self.series()
@@ -248,9 +271,10 @@ class CarrySleeve:
         if stale_h > 6.0:
             print("  SLEEVE skip orders, hourly cache is older than 6 hours", flush=True)
             return
-        book = self.book(state)
         reb_ts = int(book.get("rebalance_ts") or 0)
         due = int(now_ms) - reb_ts >= HOLD_MS
+        if book["legs"] and due:
+            book["stop_streak"] = 0
         if not due and reb_ts > 0 and int(book.get("stopped_ts") or -1) == reb_ts:
             print("  SLEEVE waiting for next 48h slot after basket_stop", flush=True)
             return

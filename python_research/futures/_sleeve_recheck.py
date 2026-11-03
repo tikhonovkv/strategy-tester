@@ -27,6 +27,8 @@ BASKET_STOP = UNLEV_STOP * SLEEVE_LEV
 QUIET_DAYS = 5.0            # must be flat in Schwartz for >= 5 days
 MAX_RECENT_TRADES = 1       # and <= 1 Schwartz entry in the last 14 days
 RECENT_WINDOW_D = 14.0
+STOP_STREAK_LIMIT = 2       # after 2 consecutive basket stops, pause basket
+STOP_COOLDOWN_H = 144.0     # for 6 days (144 hours)
 END = int(datetime(2026, 11, 3, tzinfo=timezone.utc).timestamp() * 1000)
 OUT = sp.LAB / "_sleeve_recheck.json"
 
@@ -338,7 +340,7 @@ class DroughtSleeveBook:
         return 0.0
 
 
-def simulate(cands, series, syms, start, end, mode="nox"):
+def simulate(cands, series, syms, start, end, mode="nox", start_eq=2000.0):
     btc = series["BTCUSDT"]
     rebalance = set(rebalance_times(btc, start, end))
     excluded = tuple(list(sp.ALTS_7) + ["BTCUSDT"])
@@ -359,12 +361,13 @@ def simulate(cands, series, syms, start, end, mode="nox"):
                 times.add(pyr_ts)
 
     book = DroughtSleeveBook(lev=SLEEVE_LEV, unlev_stop=UNLEV_STOP)
-    free = 2000.0
+    start_eq = float(start_eq)
+    free = start_eq
     reserved = 0.0
     open_pos = []
     schwartz = []
     schwartz_trades = []
-    curve = [(start, 2000.0)]
+    curve = [(start, start_eq)]
     loss_streak = 0
     win_streak = 0
     prior_entries = [
@@ -375,6 +378,8 @@ def simulate(cands, series, syms, start, end, mode="nox"):
     ]
     schwartz_entry_times = sorted({int(e["t"]) for e in prior_entries})
     last_schwartz_active_ts = max([start] + [int(e.get("exit_ts_nopyr") or e["exit_ts"]) for e in prior_entries])
+    stop_streak = 0
+    cooldown_until = -10**18
 
     def equity(t):
         return free + reserved + book.value(series, t)
@@ -388,6 +393,9 @@ def simulate(cands, series, syms, start, end, mode="nox"):
         stopped_cash = book.check_stop(series, t, free + reserved)
         if stopped_cash is not None:
             free += stopped_cash
+            stop_streak += 1
+            if STOP_STREAK_LIMIT > 0 and stop_streak >= STOP_STREAK_LIMIT:
+                cooldown_until = t + int(STOP_COOLDOWN_H * sp.HOUR)
 
         # 2. Close finished Schwartz trades
         still = []
@@ -420,7 +428,7 @@ def simulate(cands, series, syms, start, end, mode="nox"):
                 last_schwartz_active_ts = t
                 schwartz.append(float(pnl))
                 eq_after = equity(t)
-                contrib = pnl / max(float(p.get("eq_entry") or 2000.0), 1.0)
+                contrib = pnl / max(float(p.get("eq_entry") or start_eq), 1.0)
                 hold_h = max(1, int((int(p["exit_ts"]) - int(e["t"])) / sp.HOUR))
                 schwartz_trades.append({
                     "t": int(e["t"]),
@@ -527,12 +535,19 @@ def simulate(cands, series, syms, start, end, mode="nox"):
                 busy.add(e["sym"])
                 last_schwartz_active_ts = t
                 schwartz_entry_times.append(t)
+                stop_streak = 0
 
         # 5. Drought basket rebalance on 48h grid
         if t in rebalance and not open_pos:
+            if book.legs:
+                stop_streak = 0
             quiet_h = (t - last_schwartz_active_ts) / sp.HOUR
             recent_cnt = sum(1 for ts_e in schwartz_entry_times if t - ts_e <= RECENT_WINDOW_D * sp.DAY)
-            is_drought = (quiet_h >= QUIET_DAYS * 24.0) and (recent_cnt <= MAX_RECENT_TRADES)
+            is_drought = (
+                (quiet_h >= QUIET_DAYS * 24.0)
+                and (recent_cnt <= MAX_RECENT_TRADES)
+                and (t >= cooldown_until)
+            )
             if is_drought:
                 cash_in = free
                 free = 0.0
@@ -555,8 +570,8 @@ def simulate(cands, series, syms, start, end, mode="nox"):
         curve.append((last_t, round(final_eq, 2)))
     else:
         curve[-1] = (curve[-1][0], round(final_eq, 2))
-    gap = final_eq - 2000.0 - sum(schwartz) - sum(book.events)
-    out = pack(schwartz + book.events, curve)
+    gap = final_eq - start_eq - sum(schwartz) - sum(book.events)
+    out = pack(schwartz + book.events, curve, start_eq=start_eq)
     out["schwartz_n"] = len(schwartz)
     out["sleeve_pnl"] = round(sum(book.events), 2)
     out["gap"] = round(gap, 2)
@@ -565,9 +580,9 @@ def simulate(cands, series, syms, start, end, mode="nox"):
     return out
 
 
-def baseline_window(cands, start, end):
+def baseline_window(cands, start, end, start_eq=2000.0):
     part = [e for e in cands if start <= int(e["t"]) < end]
-    res = sp.simulate_window(part)
+    res = sp.simulate_window(part, start_eq=float(start_eq))
     wins = sorted((t["pnl_usd"] for t in res["trades"] if t["pnl_usd"] > 0), reverse=True)
     return {
         "n": res["n"],

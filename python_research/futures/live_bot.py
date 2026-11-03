@@ -288,9 +288,14 @@ def close_journal(state: dict) -> list[dict]:
     return rows
 
 
-def remember_close(state: dict, sym: str, ts: int, win: bool) -> None:
+def remember_close(state: dict, sym: str, ts: int, win: bool, opened_ts: int = 0) -> None:
     rows = close_journal(state)
-    rows.append({"sym": sym, "ts": int(ts), "win": bool(win)})
+    rows.append({
+        "sym": sym,
+        "ts": int(ts),
+        "opened_ts": int(opened_ts or ts),
+        "win": bool(win),
+    })
     state["_closes"] = rows[-24:]
 
 
@@ -316,18 +321,21 @@ def seed_close_journal(trader: "FuturesTrader") -> list[dict]:
         print("  closed-pnl streak seed failed:", exc, flush=True)
         return []
     allowed = set(ALTS_7)
+    oct_2026_ms = int(datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp() * 1000)
     rows = []
     for row in (payload.get("result") or {}).get("list") or []:
         sym = str(row.get("symbol") or "")
         if sym not in allowed:
             continue
         ts = int(row.get("updatedTime") or row.get("createdTime") or 0)
+        opened_ts = int(row.get("createdTime") or ts)
         # 1 Oct 2026 UTC: earlier alt closes are not this bot's streak.
-        if ts < 1790812800000:
+        if ts < oct_2026_ms:
             continue
         rows.append({
             "sym": sym,
             "ts": ts,
+            "opened_ts": opened_ts,
             "win": float(row.get("closedPnl") or 0) > 0,
         })
     rows.sort(key=lambda r: r["ts"])
@@ -505,9 +513,10 @@ def main():
             continue
         if stale_sym not in pos and stale_sym not in sleeve_syms:
             row = state.get(stale_sym) or {}
-            win = lookup_closed_win(trader, stale_sym, int(row.get("opened") or 0))
+            opened_stale = int(row.get("opened") or 0)
+            win = lookup_closed_win(trader, stale_sym, opened_stale)
             if win is not None:
-                remember_close(state, stale_sym, now, win)
+                remember_close(state, stale_sym, now, win, opened_ts=opened_stale)
                 print(f"  EXTERNAL CLOSE {stale_sym} win={win}", flush=True)
             state.pop(stale_sym, None)
 
@@ -570,7 +579,7 @@ def main():
                     continue
             avg_px = float(p["entry"] or entry_px)
             move_avg = p["side"] * (cur_px / avg_px - 1.0) if avg_px > 0 else move
-            remember_close(state, sym, now, move_avg > 0.0011)
+            remember_close(state, sym, now, move_avg > 0.0011, opened_ts=opened)
             state.pop(sym, None)
             pos.pop(sym, None)
             save_state(state)
@@ -637,16 +646,12 @@ def main():
             equity * max_margin_frac,
             (rem_free + sleeve_m) * 0.90,
         )
-        if sleeve:
-            buffer = 0.50 * raw_margin
-            if raw_margin + buffer > rem_free:
-                sleeve.release(state, raw_margin + buffer - rem_free)
-                trader.invalidate_account()
-                rem_free = trader.available_margin()
-                equity = trader.account_equity()
-            margin = min(raw_margin, max(0.0, rem_free - buffer), rem_free * 0.90)
-        else:
-            margin = min(raw_margin, rem_free * 0.90)
+        if sleeve and sleeve.book(state)["legs"]:
+            sleeve.flatten_all(state, reason="schwartz_signal")
+            trader.invalidate_account()
+            rem_free = trader.available_margin()
+            equity = trader.account_equity()
+        margin = min(raw_margin, rem_free * 0.90)
         if margin < 15.0:
             continue
         qty = margin * leverage / px

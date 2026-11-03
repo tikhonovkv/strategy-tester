@@ -201,7 +201,7 @@ class FuturesTrader:
     def fit_qty(self, symbol: str, qty: float) -> str:
         step = float((self.instrument(symbol).get("lotSizeFilter") or {}).get("qtyStep") or 0)
         if step > 0:
-            qty = int(qty / step) * step
+            qty = round(qty / step) * step
             raw = "{:.8f}".format(step).rstrip("0")
             decimals = len(raw.split(".")[1]) if "." in raw else 0
             qty = round(qty, decimals)

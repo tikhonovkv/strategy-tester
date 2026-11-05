@@ -21,6 +21,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from causal import load_coin
+from accounts_config import (
+    get_account,
+    parse_account_arg,
+    write_account_json,
+)
 
 LAB = Path(__file__).resolve().parent
 OUT = Path(os.environ.get("OUTPUT_DIR", str(LAB)))
@@ -87,13 +92,13 @@ def load_sleeve(tag: str) -> dict:
     return {}
 
 
-def fetch_live_executions_and_closed_pnl():
+def fetch_live_executions_and_closed_pnl(account_id: str = "main"):
     from rest import BybitClient
-    client = BybitClient()
+    client = BybitClient(account_id=account_id)
     try:
         client._require_keys()
     except BaseException:
-        return [], [], 2000.0
+        return [], [], [], 2000.0
 
     now = int(time.time() * 1000)
     day = 86400000
@@ -173,6 +178,7 @@ def fetch_live_executions_and_closed_pnl():
                             if acc_q >= closed_size * 0.90:
                                 break
                     closed_pnl.append({
+                        "event_type": "trade",
                         "order_id": oid,
                         "symbol": sym,
                         "coin": sym.replace("USDT", ""),
@@ -191,24 +197,107 @@ def fetch_live_executions_and_closed_pnl():
             except Exception:
                 time.sleep(0.3)
     closed_pnl.sort(key=lambda x: x["closed_ts"])
-    return fills, closed_pnl, round(wallet_usdt, 2)
+
+    # 4. Account balance transfers (deposits / withdrawals / internal transfers) over last 90 days
+    transfers = []
+    seen_tx = set()
+    transfer_types = {"TRANSFER_IN", "TRANSFER_OUT", "DEPOSIT", "WITHDRAW", "SUB_MEMBER_TRANSFER"}
+    for i in range(-1, 13):
+        t_params = {"accountType": "UNIFIED", "currency": "USDT", "limit": "50"}
+        if i >= 0:
+            end = now - i * 7 * day
+            start = end - 7 * day
+            t_params["startTime"] = str(start)
+            t_params["endTime"] = str(end)
+        try:
+            d = client.private_get("/v5/account/transaction-log", t_params)
+            for r in (d.get("result") or {}).get("list") or []:
+                tx_type = str(r.get("type") or "").upper()
+                if tx_type not in transfer_types and "TRANSFER" not in tx_type and "DEPOSIT" not in tx_type and "WITHDRAW" not in tx_type:
+                    continue
+                tx_id = str(r.get("id") or r.get("transId") or "")
+                tx_ts = int(r.get("transactionTime") or 0)
+                change = float(r.get("change") or 0.0)
+                if abs(change) < 0.01 or tx_ts <= 0:
+                    continue
+                dedup_key = tx_id or f"{tx_ts}_{round(change, 2)}"
+                if dedup_key in seen_tx:
+                    continue
+                seen_tx.add(dedup_key)
+                is_in = change > 0
+                transfers.append({
+                    "event_type": "transfer",
+                    "is_transfer": True,
+                    "transfer_dir": "in" if is_in else "out",
+                    "order_id": dedup_key,
+                    "symbol": "USDT",
+                    "coin": "USDT",
+                    "side": 1 if is_in else -1,
+                    "created_ts": tx_ts,
+                    "closed_ts": tx_ts,
+                    "ts": tx_ts,
+                    "time": iso(tx_ts),
+                    "exit_time": iso(tx_ts),
+                    "qty": abs(round(change, 2)),
+                    "entry_price": 1.0,
+                    "exit_price": 1.0,
+                    "leverage": 1.0,
+                    "amount_usd": round(change, 2),
+                    "pnl_usd": 0.0,
+                    "pnl_pct": 0.0,
+                    "cash_balance": round(float(r.get("cashBalance") or 0.0), 2),
+                })
+        except Exception:
+            pass
+    transfers.sort(key=lambda x: x["closed_ts"])
+    return fills, closed_pnl, transfers, round(wallet_usdt, 2)
 
 
-def build_real_equity_curve(closed_pnl: list[dict], wallet_now: float, cut_ts: int, bt_trades: list[dict] | None = None):
-    """Reconstruct actual account balance & PnL % curve inside the period [cut_ts, now]."""
+def build_real_equity_curve(
+    closed_pnl: list[dict],
+    transfers: list[dict],
+    wallet_now: float,
+    cut_ts: int,
+    bt_trades: list[dict] | None = None,
+    account_leverage: float = 7.0,
+    sleeve_leverage: float = 3.0,
+):
+    """Reconstruct actual account balance, deposits/withdrawals & time-weighted PnL % curve inside [cut_ts, now]."""
     now_ms = int(time.time() * 1000)
-    in_period = [c for c in closed_pnl if c["closed_ts"] >= cut_ts]
+    in_period = [dict(c) for c in closed_pnl if c["closed_ts"] >= cut_ts]
+    in_transfers = [dict(t) for t in transfers if t["closed_ts"] >= cut_ts]
     total_pnl_period = sum(c["pnl_usd"] for c in in_period)
-    start_bal = max(100.0, wallet_now - total_pnl_period)
+    net_transfers_period = sum(t["amount_usd"] for t in in_transfers)
+    raw_start = wallet_now - total_pnl_period - net_transfers_period
+    start_bal = max(10.0, raw_start) if wallet_now > 0 else 2000.0
 
     pts = [[iso(max(cut_ts, now_ms - 90 * 86400000 if cut_ts == 0 else cut_ts)), 0.0, round(start_bal, 2)]]
     running_bal = start_bal
-    for c in in_period:
+    twr_mult = 1.0
+
+    events = sorted(
+        in_period + in_transfers,
+        key=lambda e: (int(e["closed_ts"]), 0 if e.get("is_transfer") else 1),
+    )
+
+    for ev in events:
+        if ev.get("is_transfer"):
+            amt = float(ev.get("amount_usd") or 0.0)
+            running_bal = max(0.0, running_bal + amt)
+            ev["eq_after"] = round(running_bal, 2)
+            ev["pnl_pct"] = 0.0
+            pct_now = round((twr_mult - 1.0) * 100.0, 2)
+            pts.append([ev["exit_time"], pct_now, round(running_bal, 2)])
+            continue
+
+        c = ev
+        base_before = max(running_bal, 50.0)
+        trade_ret = float(c["pnl_usd"]) / base_before
+        twr_mult = max(0.01, twr_mult * (1.0 + trade_ret))
         running_bal += c["pnl_usd"]
-        pct = round((running_bal / start_bal - 1.0) * 100.0, 2)
-        c["pnl_pct"] = round((c["pnl_usd"] / start_bal) * 100.0, 2)
+        pct = round((twr_mult - 1.0) * 100.0, 2)
+        c["pnl_pct"] = round(trade_ret * 100.0, 2)
         c["eq_after"] = round(running_bal, 2)
-        # Check whether this closed trade matches a Schwartz signal or is post-launch
         matched_bt = False
         if bt_trades:
             for bt in bt_trades:
@@ -216,30 +305,52 @@ def build_real_equity_curve(closed_pnl: list[dict], wallet_now: float, cut_ts: i
                     matched_bt = True
                     break
         schwartz_names = {"ETH", "SOL", "XRP", "ADA", "AVAX", "LINK", "SUI"}
-        c["is_sleeve"] = c["coin"] not in schwartz_names and float(c.get("leverage") or 0) <= 3.5
+        c["is_sleeve"] = c["coin"] not in schwartz_names and float(c.get("leverage") or 0) <= max(3.5, sleeve_leverage + 0.5)
         c["is_schwartz"] = (not c["is_sleeve"]) and bool(
-            matched_bt or (c["created_ts"] >= 1792713600000 and abs(c.get("leverage", 0) - 7.0) < 0.5)
+            matched_bt or (c["created_ts"] >= 1792713600000 and abs(c.get("leverage", 0) - account_leverage) < 1.5)
         )
         pts.append([c["exit_time"], pct, round(running_bal, 2)])
-    pts.append([iso(now_ms), round((running_bal / start_bal - 1.0) * 100.0, 2), round(running_bal, 2)])
+
+    final_ret_pct = round((twr_mult - 1.0) * 100.0, 2)
+    pts.append([iso(now_ms), final_ret_pct, round(running_bal, 2)])
     return {
         "start_balance": round(start_bal, 2),
         "end_balance": round(running_bal, 2),
         "pnl_usd": round(total_pnl_period, 2),
-        "return_pct": round((running_bal / start_bal - 1.0) * 100.0, 2),
+        "net_transfers_usd": round(net_transfers_period, 2),
+        "deposits_count": sum(1 for t in in_transfers if t["amount_usd"] > 0),
+        "withdrawals_count": sum(1 for t in in_transfers if t["amount_usd"] < 0),
+        "return_pct": final_ret_pct,
         "trades_count": len(in_period),
         "wins_count": sum(1 for c in in_period if c["pnl_usd"] > 0),
         "schwartz_count": sum(1 for c in in_period if c.get("is_schwartz")),
         "curve": pts,
-        "closed_trades": list(reversed(in_period)),
+        "closed_trades": list(reversed(events)),
     }
 
 
-def match(backtest: list[dict], live: list[dict], window_h: int = 12):
+def match(
+    backtest: list[dict],
+    live: list[dict],
+    window_h: int = 12,
+    wallet_now: float = 2000.0,
+    acct_lev: float = 7.0,
+    sleeve_lev: float = 3.0,
+):
     win = window_h * 3600000
     used = [False] * len(live)
     results = []
     for bt in backtest:
+        is_slv = (bt.get("book") == "sleeve")
+        base_lev = 3.0 if is_slv else 7.0
+        target_lev = sleeve_lev if is_slv else acct_lev
+        bt_eq_after = float(bt.get("eq") or 2000.0)
+        bt_pnl = float(bt.get("pnl_usd") or 0.0)
+        bt_eq_before = max(200.0, bt_eq_after - bt_pnl)
+        eq_ratio = (wallet_now / bt_eq_before) if wallet_now > 0 else 1.0
+        lev_ratio = target_lev / max(base_lev, 1.0)
+        expected_qty = float(bt.get("qty") or 0.0) * eq_ratio * lev_ratio
+
         best = None
         for li, lf in enumerate(live):
             if used[li]:
@@ -250,7 +361,12 @@ def match(backtest: list[dict], live: list[dict], window_h: int = 12):
                 if best is None or abs(lf["ts"] - bt["ts"]) < abs(live[best]["ts"] - bt["ts"]):
                     best = li
         if best is None:
-            results.append({"status": "BACKTEST", "quality": "NOT_ON_ACCOUNT", **bt})
+            results.append({
+                "status": "BACKTEST",
+                "quality": "NOT_ON_ACCOUNT",
+                **bt,
+                "scaled_qty": round(expected_qty, 4),
+            })
         else:
             used[best] = True
             lf = live[best]
@@ -259,9 +375,10 @@ def match(backtest: list[dict], live: list[dict], window_h: int = 12):
                 if bt.get("entry_price")
                 else None
             )
+            ref_qty = expected_qty if expected_qty > 0 else float(bt.get("qty") or 0.0)
             qty_diff = (
-                abs(lf["qty"] - bt["qty"]) / bt["qty"] * 100
-                if bt.get("qty")
+                abs(lf["qty"] - ref_qty) / ref_qty * 100
+                if ref_qty > 0
                 else None
             )
             issues = []
@@ -273,6 +390,7 @@ def match(backtest: list[dict], live: list[dict], window_h: int = 12):
             results.append({
                 "status": "MATCHED",
                 **bt,
+                "scaled_qty": round(expected_qty, 4),
                 "live_qty": round(lf["qty"], 4),
                 "live_px": lf["px"],
                 "price_diff_pct": round(price_diff, 2) if price_diff is not None else None,
@@ -283,15 +401,20 @@ def match(backtest: list[dict], live: list[dict], window_h: int = 12):
     return results, extras
 
 
-def render_html(periods):
+def render_html(periods, account_id: str | None = None):
+    acc_id = account_id or parse_account_arg()
+    acc = get_account(acc_id)
+    acct_lev = float(acc.get("leverage", 7.0))
+    sleeve_lev = float(acc.get("sleeve_leverage", 3.0))
+    enable_sleeve = bool(acc.get("enable_sleeve", True)) and (str(acc.get("strategy")) != "schwartz_only")
     now_ms = int(time.time() * 1000)
     day = 86400000
-    live_fills, closed_pnl, wallet_now = fetch_live_executions_and_closed_pnl()
+    live_fills, closed_pnl, transfers, wallet_now = fetch_live_executions_and_closed_pnl(acc_id)
 
     jperiods = []
     for label, tag, days in periods:
         bt, raw_j = load_backtest(tag)
-        sleeve = load_sleeve(tag)
+        sleeve = load_sleeve(tag) if enable_sleeve else {}
         if sleeve.get("schwartz_trades"):
             bt = []
             for tr in sleeve["schwartz_trades"]:
@@ -305,7 +428,18 @@ def render_html(periods):
             row["book"] = "sleeve"
             row["pnl_pct"] = float(row.get("pnl_pct") or row.get("raw_net_pct") or 0.0)
             bt.append(row)
-        res, extras = match(bt, live_fills)
+
+        cut_ts = 0 if days >= 1000 else now_ms - days * day
+        real_acct = build_real_equity_curve(
+            closed_pnl,
+            transfers,
+            wallet_now,
+            cut_ts,
+            bt,
+            account_leverage=acct_lev,
+            sleeve_leverage=sleeve_lev,
+        )
+        res, extras = match(bt, live_fills, wallet_now=wallet_now, acct_lev=acct_lev, sleeve_lev=sleeve_lev)
         matched = sum(1 for r in res if r["status"] == "MATCHED")
         missed = sum(1 for r in res if r["status"] != "MATCHED")
         n_off = sum(1 for r in res if r["status"] == "MATCHED" and r.get("quality") != "OK")
@@ -323,8 +457,6 @@ def render_html(periods):
             final_eq = round(float(raw_j.get("final", 2000.0)), 2)
             equity = raw_j.get("equity_pct") or []
 
-        cut_ts = 0 if days >= 1000 else now_ms - days * day
-        real_acct = build_real_equity_curve(closed_pnl, wallet_now, cut_ts, bt)
         matched = max(matched, int(real_acct.get("schwartz_count", 0)))
 
         jperiods.append({
@@ -353,8 +485,9 @@ def render_html(periods):
                     "entry_price": r["entry_price"],
                     "exit_price": r["exit_price"],
                     "qty": r["qty"],
+                    "scaled_qty": r.get("scaled_qty"),
                     "margin": r.get("margin"),
-                    "eff_lev": r.get("eff_lev", 7.0),
+                    "eff_lev": sleeve_lev if (r.get("book") == "sleeve") else acct_lev,
                     "raw_net_pct": r.get("raw_net_pct", 0.0),
                     "pnl_usd": r.get("pnl_usd", 0.0),
                     "eq": r.get("eq", 2000.0),
@@ -373,22 +506,20 @@ def render_html(periods):
         })
 
     payload = {
+        "account_id": acc_id,
+        "account_name": acc.get("name", acc_id),
+        "exchange": acc.get("exchange", "bybit"),
+        "leverage": acct_lev,
+        "sleeve_leverage": sleeve_lev,
+        "risk_pct": float(acc.get("risk_pct", 0.075)),
         "periods": jperiods,
         "wallet_usdt": wallet_now,
-        "cron_schedule": "Каждые 5 минут — сверка счёта Bybit и контроль открытых позиций; каждый час (:02) — докачка свечей и вход по новым сигналам",
-        "strategy": "Шварц 7x + спящая корзина 3x (вкл. при паузе ≥5д)",
+        "cron_schedule": "Каждые 5 минут — сверка счёта Bybit, переводов и пропорций позиций; каждый час (:02) — докачка свечей и вход по новым сигналам",
+        "strategy": f"Шварц {acct_lev:.0f}x" + (f" + спящая корзина {sleeve_lev:.0f}x (вкл. при паузе ≥5д)" if enable_sleeve else ""),
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
-    for target_dir in {LAB, OUT}:
-        tmp = target_dir / "futures_compare.json.tmp"
-        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, target_dir / "futures_compare.json")
-    try:
-        import s3_storage
-        s3_storage.put_json("futures_compare.json", payload)
-    except Exception as exc:
-        print("  s3 compare:", exc, flush=True)
-    print("saved futures_compare.json with real_account PnL and backtest curves", flush=True)
+    write_account_json("futures_compare", acc_id, payload, persist=True)
+    print(f"saved futures_compare ({acc_id}) with real_account PnL, transfers and backtest curves", flush=True)
 
 
 if __name__ == "__main__":

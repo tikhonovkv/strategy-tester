@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """3x drought-mode carry/momentum sleeve for the one-way Bybit account.
 
 Turns ON only when Schwartz 7x has been flat for >= 5 days and had <= 1 trade
@@ -76,8 +76,9 @@ def target_weights(series, syms, t, exclude=()):
 
 
 class CarrySleeve:
-    def __init__(self, trader):
+    def __init__(self, trader, sleeve_lev: float = SLEEVE_LEV):
         self.trader = trader
+        self.lev = max(1.0, float(sleeve_lev or SLEEVE_LEV))
         self._series = None
 
     def series(self):
@@ -95,6 +96,7 @@ class CarrySleeve:
         raw.setdefault("stopped_ts", -1)
         raw.setdefault("stop_streak", 0)
         raw.setdefault("cooldown_until", 0)
+        raw.setdefault("sized_equity", 0.0)
         return raw
 
     def symbols(self, state) -> set:
@@ -105,7 +107,7 @@ class CarrySleeve:
         total = 0.0
         for sym, leg in self.book(state)["legs"].items():
             px = self._price(sym, leg)
-            total += abs(float(leg.get("qty") or 0.0)) * px / max(SLEEVE_LEV, 1.0)
+            total += abs(float(leg.get("qty") or 0.0)) * px / max(self.lev, 1.0)
         return total
 
     def is_drought(self, state, schwartz_open_count: int, now_ms: int) -> tuple[bool, float, int]:
@@ -172,7 +174,7 @@ class CarrySleeve:
         if unlev_ret > -UNLEV_STOP:
             return False
         print(
-            f"  SLEEVE STOP (spread {unlev_ret*100:+.2f}% <= -{UNLEV_STOP*100:.1f}%, eq {unlev_ret*SLEEVE_LEV*100:+.2f}%) closing {len(legs)} legs (pnl=${unreal_pnl:+.2f})",
+            f"  SLEEVE STOP (spread {unlev_ret*100:+.2f}% <= -{UNLEV_STOP*100:.1f}%, eq {unlev_ret*self.lev*100:+.2f}%) closing {len(legs)} legs (pnl=${unreal_pnl:+.2f})",
             flush=True,
         )
         for sym in list(legs):
@@ -236,7 +238,44 @@ class CarrySleeve:
         self.flatten_all(state, reason="schwartz_margin")
         return freed
 
-    def park(self, state, deployable: float, now_ms: int, schwartz_open_count: int = 0) -> None:
+    def check_scale(self, state, deployable: float, account_equity: float, now_ms: int) -> bool:
+        """Proportionally scale open sleeve legs on any 5m tick after a deposit or withdrawal."""
+        book = self.book(state)
+        legs = book.get("legs") or {}
+        if not legs:
+            return False
+        marked_margin = self.margin(state)
+        if marked_margin <= 0:
+            return False
+        # Target sleeve margin is 92% of total account equity (or marked_margin + 92% of free margin)
+        target_eq = min(account_equity * 0.92, marked_margin + max(0.0, deployable) * 0.92) if account_equity > 0 else (marked_margin + max(0.0, deployable) * 0.92)
+        prev_sized = float(book.get("sized_equity") or marked_margin)
+        # Trigger proportional resize if target equity shifted by >= 5% and >= $15 vs current sleeve margin or last sized equity
+        diff_vs_margin = abs(target_eq - marked_margin) / max(marked_margin, 1.0)
+        diff_vs_sized = abs(account_equity - prev_sized) / max(prev_sized, 1.0) if prev_sized > 0 and account_equity > 0 else 0.0
+        if (diff_vs_margin < 0.05 and diff_vs_sized < 0.05) or abs(target_eq - marked_margin) < MIN_NOTIONAL:
+            return False
+        n_legs = max(1, len(legs))
+        current_weights = {
+            sym: (1.0 / n_legs if int(leg.get("side") or 1) > 0 else -1.0 / n_legs)
+            for sym, leg in legs.items()
+        }
+        print(
+            f"  SLEEVE SCALE (balance change: margin=${marked_margin:.1f} -> target=${target_eq:.1f}, eq=${account_equity:.1f}) resizing {len(legs)} legs proportionally",
+            flush=True,
+        )
+        self._rebalance(
+            state,
+            current_weights,
+            max(0.0, deployable),
+            int(now_ms),
+            keep_rebalance_ts=True,
+            target_equity_override=target_eq,
+        )
+        self.arm_exchange_stops(state)
+        return True
+
+    def park(self, state, deployable: float, now_ms: int, schwartz_open_count: int = 0, pause_new_trades: bool = False) -> None:
         """Deploy into the 3x basket ONLY when Schwartz is in a flat-market drought."""
         drought_ok, quiet_d, recent_cnt = self.is_drought(state, schwartz_open_count, now_ms)
         book = self.book(state)
@@ -256,6 +295,9 @@ class CarrySleeve:
             else:
                 print(f"  SLEEVE cooldown {left_h:.1f}h after {STOP_STREAK_LIMIT} basket stops", flush=True)
             return
+        if pause_new_trades:
+            print("  SLEEVE paused (pause_new_trades=ON): keeping existing legs, not opening new ones", flush=True)
+            return
 
         series = self.series()
         btc = series.get("BTCUSDT")
@@ -266,8 +308,8 @@ class CarrySleeve:
                 asof = last
         stale_h = (int(now_ms) - asof) / sp.HOUR
         weights_now = target_weights(series, list(series.keys()), asof)
-        book_txt = ", ".join(f"{sym}:{weight * SLEEVE_LEV:+.2f}" for sym, weight in weights_now.items()) or "empty"
-        print(f"  SLEEVE 3x drought-mode lag={stale_h:.1f}h quiet={quiet_d}d {book_txt}", flush=True)
+        book_txt = ", ".join(f"{sym}:{weight * self.lev:+.2f}" for sym, weight in weights_now.items()) or "empty"
+        print(f"  SLEEVE {self.lev:.0f}x drought-mode lag={stale_h:.1f}h quiet={quiet_d}d {book_txt}", flush=True)
         if stale_h > 6.0:
             print("  SLEEVE skip orders, hourly cache is older than 6 hours", flush=True)
             return
@@ -279,13 +321,22 @@ class CarrySleeve:
             print("  SLEEVE waiting for next 48h slot after basket_stop", flush=True)
             return
         if book["legs"] and not due:
+            self.check_scale(state, max(0.0, deployable), self.trader.account_equity(), int(now_ms))
             return
         if deployable < MIN_NOTIONAL and not book["legs"]:
             return
         self._rebalance(state, weights_now, max(0.0, deployable), int(now_ms))
         self.arm_exchange_stops(state)
 
-    def _rebalance(self, state, weights: dict, deployable: float, now_ms: int) -> None:
+    def _rebalance(
+        self,
+        state,
+        weights: dict,
+        deployable: float,
+        now_ms: int,
+        keep_rebalance_ts: bool = False,
+        target_equity_override: float | None = None,
+    ) -> None:
         book = self.book(state)
         legs = book["legs"]
         marked_margin = 0.0
@@ -295,16 +346,16 @@ class CarrySleeve:
             notional = abs(float(leg.get("qty") or 0.0)) * px
             signed = int(leg.get("side") or 1) * notional
             current[sym] = signed
-            marked_margin += notional / max(SLEEVE_LEV, 1.0)
-        equity = marked_margin + deployable * 0.92
+            marked_margin += notional / max(self.lev, 1.0)
+        equity = target_equity_override if target_equity_override is not None else (marked_margin + deployable * 0.92)
         if equity < MIN_NOTIONAL or not weights:
             for sym in list(legs):
                 self._flatten(sym, legs)
-            if self.trader.live:
+            if self.trader.live and not keep_rebalance_ts:
                 book["rebalance_ts"] = now_ms
                 book["stopped_ts"] = -1
             return
-        targets = {sym: w * SLEEVE_LEV * equity for sym, w in weights.items()}
+        targets = {sym: w * self.lev * equity for sym, w in weights.items()}
         for sym in list(current):
             if sym not in targets:
                 self._flatten(sym, legs)
@@ -324,15 +375,20 @@ class CarrySleeve:
             qty = abs(delta) / px
             if self._order(sym, side, qty, reduce_only=reducing) and self.trader.live:
                 filled = self._fit_qty(sym, qty)
-                prev = abs(float((legs.get(sym) or {}).get("qty") or 0.0))
+                prev_leg = legs.get(sym) or {}
+                prev = abs(float(prev_leg.get("qty") or 0.0))
+                old_px = float(prev_leg.get("px") or px)
                 new_qty = max(0.0, prev - filled) if reducing else prev + filled
                 if new_qty * px < MIN_NOTIONAL:
                     legs.pop(sym, None)
                 else:
-                    legs[sym] = {"side": 1 if signed_notional > 0 else -1, "qty": new_qty, "px": px}
+                    avg_px = old_px if reducing else ((prev * old_px + filled * px) / max(new_qty, 1e-12))
+                    legs[sym] = {"side": 1 if signed_notional > 0 else -1, "qty": new_qty, "px": avg_px}
         if self.trader.live:
-            book["rebalance_ts"] = now_ms
-            book["stopped_ts"] = -1
+            book["sized_equity"] = round(float(self.trader.account_equity() or equity), 2)
+            if not keep_rebalance_ts:
+                book["rebalance_ts"] = now_ms
+                book["stopped_ts"] = -1
 
     def _flatten(self, sym, legs) -> None:
         leg = legs.get(sym)
@@ -366,9 +422,9 @@ class CarrySleeve:
     def _isolated(self, sym) -> bool:
         if not self.trader.live or not self.trader.has_keys():
             return True
-        lev_str = str(int(SLEEVE_LEV))
+        lev_str = str(int(self.lev))
         try:
-            self.trader.set_leverage(sym, SLEEVE_LEV)
+            self.trader.set_leverage(sym, self.lev)
             self.trader.client.private_post(
                 "/v5/position/switch-isolated",
                 {

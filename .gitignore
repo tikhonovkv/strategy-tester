@@ -15,3 +15,4 @@
 /.vscode
 *.npz
 *.parquet
+accounts_config*.json

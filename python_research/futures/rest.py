@@ -54,7 +54,32 @@ def _server_ms(data: dict) -> float:
     return 0.0
 
 
-def load_keys() -> BybitKeys:
+def load_keys(account_id: str | None = None) -> BybitKeys:
+    if account_id:
+        try:
+            from accounts_config import get_account
+            acc = get_account(account_id)
+            k = str(acc.get("api_key") or "").strip()
+            s = str(acc.get("api_secret") or "").strip()
+            if k and s:
+                return BybitKeys(k, s)
+            if account_id != "main":
+                raise SystemExit(f"нет BYBIT_API_KEY / BYBIT_API_SECRET для аккаунта {account_id}")
+        except SystemExit:
+            raise
+        except Exception:
+            if account_id != "main":
+                raise SystemExit(f"ошибка загрузки ключей аккаунта {account_id}")
+    else:
+        try:
+            from accounts_config import get_account
+            acc = get_account("main")
+            k = str(acc.get("api_key") or "").strip()
+            s = str(acc.get("api_secret") or "").strip()
+            if k and s:
+                return BybitKeys(k, s)
+        except Exception:
+            pass
     home = Path.home() / ".cursor"
     file_vals: dict[str, str] = {}
     for path in (
@@ -72,8 +97,9 @@ def load_keys() -> BybitKeys:
 
 
 class BybitClient:
-    def __init__(self, keys: BybitKeys | None = None) -> None:
+    def __init__(self, keys: BybitKeys | None = None, account_id: str | None = None) -> None:
         self._keys = keys
+        self._account_id = account_id
         self._opener = urllib.request.build_opener(
             urllib.request.HTTPSHandler(context=_CTX),
         )
@@ -135,7 +161,7 @@ class BybitClient:
 
     def _require_keys(self) -> BybitKeys:
         if self._keys is None:
-            self._keys = load_keys()
+            self._keys = load_keys(self._account_id)
         return self._keys
 
     def _sign(self, keys: BybitKeys, timestamp: str, payload: str) -> str:

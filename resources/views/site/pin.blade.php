@@ -15,8 +15,8 @@
 </head>
 <body>
     <form method="post" action="/pin">
-        <h1>Пинкод</h1>
-        <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="6" autofocus required>
+        <h1>Пинкод счёта</h1>
+        <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="12" autofocus required>
         <button type="submit">Открыть</button>
         @if($bad)
             <p>Неверный пинкод</p>

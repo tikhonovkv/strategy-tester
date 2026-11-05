@@ -18,6 +18,8 @@ import sys
 import time
 from datetime import datetime, timezone
 
+from accounts_config import enabled_accounts
+
 MODE = "--live" if os.environ.get("LIVE_MODE") == "1" else "--dry-run"
 
 
@@ -31,10 +33,26 @@ def run(args: list[str]) -> None:
         print((r.stderr or "")[-2500:], flush=True)
 
 
+def run_all_accounts(is_hourly: bool = False) -> None:
+    try:
+        accounts = enabled_accounts()
+    except Exception as exc:
+        print(f"[WARN] enabled_accounts fallback to main: {exc}", flush=True)
+        accounts = [{"id": "main"}]
+    if not accounts:
+        accounts = [{"id": "main"}]
+    for acc in accounts:
+        acc_id = str(acc.get("id") or "main")
+        cmd = ["live_bot.py", MODE, "--account", acc_id]
+        if is_hourly:
+            cmd.append("--hourly-close")
+        run(cmd)
+        run(["compare_live.py", "--account", acc_id])
+
+
 def fast_startup_seed() -> None:
     run(["schwartz_production.py"])
-    run(["live_bot.py", MODE, "--hourly-close"])
-    run(["compare_live.py"])
+    run_all_accounts(is_hourly=True)
 
 
 def hourly_bar_refresh() -> None:
@@ -45,11 +63,7 @@ def hourly_bar_refresh() -> None:
 
 
 def five_minute_verification(is_hourly: bool = False) -> None:
-    cmd = ["live_bot.py", MODE]
-    if is_hourly:
-        cmd.append("--hourly-close")
-    run(cmd)
-    run(["compare_live.py"])
+    run_all_accounts(is_hourly=is_hourly)
 
 
 if __name__ == "__main__":

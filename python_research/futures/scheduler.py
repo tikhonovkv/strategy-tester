@@ -73,10 +73,13 @@ def fast_startup_seed() -> None:
 
 def hourly_bar_refresh() -> None:
     set_calc_status(True, "Идёт обновление часовых свечей и пересчёт стратегии — подождите 1–2 минуты...")
-    if os.environ.get("BOOTSTRAP", "1") != "0":
-        run(["bootstrap.py"])
-        run(["futures_dataset.py", "--no-oi"])
-    run(["schwartz_production.py"])
+    try:
+        if os.environ.get("BOOTSTRAP", "1") != "0":
+            run(["bootstrap.py"])
+            run(["futures_dataset.py", "--no-oi"])
+        run(["schwartz_production.py"])
+    finally:
+        set_calc_status(False, "Актуально")
 
 
 def five_minute_verification(is_hourly: bool = False) -> None:

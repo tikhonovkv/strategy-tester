@@ -26,9 +26,16 @@ HOUR = 3_600_000
 
 
 def get(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "bybit-futures"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode("utf-8"))
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "bybit-futures"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except Exception:
+            if attempt == 2:
+                return {}
+            time.sleep(0.5 * (attempt + 1))
+    return {}
 
 
 def fetch_bars(sym, start, end):
@@ -70,14 +77,26 @@ def fetch_funding(sym, start, end):
 
 
 def load_existing(sym):
-    for folder in (DATA, SEED_DATA, STATE):
+    merged_bars = {}
+    merged_fund = {}
+    for folder in (SEED_DATA, STATE, DATA):
         path = folder / f"{sym}.json"
         if path.exists():
             try:
-                return json.loads(path.read_text(encoding="utf-8"))
+                blob = json.loads(path.read_text(encoding="utf-8"))
+                merged_bars.update(blob.get("bars") or {})
+                merged_fund.update(blob.get("funding") or {})
             except Exception:
                 pass
-    return {"bars": {}, "funding": {}}
+    fp = LAB / "fresh" / f"{sym}_fresh.json"
+    if fp.exists():
+        try:
+            fr = json.loads(fp.read_text(encoding="utf-8"))
+            merged_bars.update(fr.get("bars") or {})
+            merged_fund.update(fr.get("funding") or {})
+        except Exception:
+            pass
+    return {"bars": merged_bars, "funding": merged_fund}
 
 
 def main():

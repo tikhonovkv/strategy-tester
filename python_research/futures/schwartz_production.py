@@ -520,9 +520,10 @@ def export_all_windows() -> None:
         print("No candidates found")
         return
     t_max = max(e["t"] for e in cands)
+    y_cut = int(datetime(2025, 11, 2, tzinfo=timezone.utc).timestamp() * 1000)
     windows = [
         ("causal_full", 0),
-        ("recent365", t_max - 365 * DAY),
+        ("recent365", y_cut),
         ("recent90", Q_CUT),
         ("recent30", t_max - 30 * DAY),
     ]

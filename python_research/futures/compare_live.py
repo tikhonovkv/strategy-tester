@@ -78,6 +78,8 @@ def load_backtest(tag: str):
 
 
 def load_sleeve(tag: str) -> dict:
+    best_row = {}
+    best_count = -1
     for base in (OUT, LAB):
         path = base / "sleeve_compare.json"
         if not path.exists():
@@ -88,8 +90,11 @@ def load_sleeve(tag: str) -> dict:
             continue
         row = data.get(tag) if isinstance(data, dict) else None
         if isinstance(row, dict):
-            return row
-    return {}
+            cnt = len(row.get("trades") or []) + len(row.get("schwartz_trades") or [])
+            if cnt > best_count:
+                best_count = cnt
+                best_row = row
+    return best_row
 
 
 def fetch_live_executions_and_closed_pnl(account_id: str = "main"):
@@ -413,21 +418,26 @@ def render_html(periods, account_id: str | None = None):
 
     jperiods = []
     for label, tag, days in periods:
-        bt, raw_j = load_backtest(tag)
         sleeve = load_sleeve(tag) if enable_sleeve else {}
-        if sleeve.get("schwartz_trades"):
+        if enable_sleeve and (sleeve.get("schwartz_trades") or sleeve.get("trades")):
             bt = []
-            for tr in sleeve["schwartz_trades"]:
+            for tr in sleeve.get("schwartz_trades") or []:
                 row = dict(tr)
                 row["ts"] = int(row.get("t") or row.get("ts") or 0)
+                row["exit_ts"] = int(row.get("exit_ts") or row["ts"])
                 row["book"] = "schwartz"
                 bt.append(row)
-        for leg in sleeve.get("trades") or []:
-            row = dict(leg)
-            row["ts"] = int(row.get("t") or row.get("ts") or 0)
-            row["book"] = "sleeve"
-            row["pnl_pct"] = float(row.get("pnl_pct") or row.get("raw_net_pct") or 0.0)
-            bt.append(row)
+            for leg in sleeve.get("trades") or []:
+                row = dict(leg)
+                row["ts"] = int(row.get("t") or row.get("ts") or 0)
+                row["exit_ts"] = int(row.get("exit_ts") or row["ts"])
+                row["book"] = "sleeve"
+                row["pnl_pct"] = float(row.get("pnl_pct") or row.get("raw_net_pct") or 0.0)
+                bt.append(row)
+            bt.sort(key=lambda x: (int(x.get("exit_ts") or 0), int(x.get("ts") or 0)))
+            raw_j = sleeve
+        else:
+            bt, raw_j = load_backtest(tag)
 
         cut_ts = 0 if days >= 1000 else now_ms - days * day
         real_acct = build_real_equity_curve(
@@ -501,7 +511,7 @@ def render_html(periods, account_id: str | None = None):
                     "status": r["status"],
                     "pnl_pct": r["pnl_pct"],
                 }
-                for r in sorted(res, key=lambda x: x["ts"], reverse=True)
+                for r in sorted(res, key=lambda x: (int(x.get("exit_ts") or 0), int(x.get("ts") or 0)), reverse=True)
             ],
         })
 

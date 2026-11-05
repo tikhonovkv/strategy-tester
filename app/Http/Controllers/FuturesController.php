@@ -151,7 +151,14 @@ class FuturesController extends Controller
         $signals = $this->readAccountJson('futures_signals', $accId);
         $compare = $this->readAccountJson('futures_compare', $accId);
         $calcStatus = $this->readAccountJson('futures_calc_status', 'main');
-        $isCalculating = empty($compare['periods']) || !empty($calcStatus['calculating']);
+        $calcFlag = !empty($calcStatus['calculating']);
+        if ($calcFlag && !empty($calcStatus['updated_at'])) {
+            $ts = strtotime((string) $calcStatus['updated_at']);
+            if ($ts && (time() - $ts) > 180) {
+                $calcFlag = false;
+            }
+        }
+        $isCalculating = empty($compare['periods']) || $calcFlag;
 
         return view('site.futures', [
             'config' => $this->modelConfig($active),

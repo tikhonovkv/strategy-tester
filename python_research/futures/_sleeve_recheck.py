@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Drought-triggered 3x Carry/Momentum sleeve beside Schwartz 7x.
 
 The sleeve turns ON only when Schwartz is in a flat-market drought:
@@ -29,7 +29,7 @@ MAX_RECENT_TRADES = 1       # and <= 1 Schwartz entry in the last 14 days
 RECENT_WINDOW_D = 14.0
 STOP_STREAK_LIMIT = 2       # after 2 consecutive basket stops, pause basket
 STOP_COOLDOWN_H = 144.0     # for 6 days (144 hours)
-END = int(datetime(2026, 11, 3, tzinfo=timezone.utc).timestamp() * 1000)
+END = int(datetime.now(timezone.utc).timestamp() * 1000)
 OUT = sp.LAB / "_sleeve_recheck.json"
 
 

@@ -11,7 +11,17 @@ class TimewebState
             foreach ($names as $name) {
                 $v = env($name);
                 if (is_string($v) && $v !== '') {
-                    return $v;
+                    return trim($v);
+                }
+                $gv = getenv($name);
+                if (is_string($gv) && $gv !== '') {
+                    return trim($gv);
+                }
+                if (!empty($_ENV[$name]) && is_string($_ENV[$name])) {
+                    return trim($_ENV[$name]);
+                }
+                if (!empty($_SERVER[$name]) && is_string($_SERVER[$name])) {
+                    return trim($_SERVER[$name]);
                 }
                 if (!empty($fileVals[$name])) {
                     return (string) $fileVals[$name];
@@ -104,6 +114,10 @@ class TimewebState
                 'timeout' => 8,
                 'ignore_errors' => true,
             ],
+            'ssl' => [
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+            ],
         ]);
         $raw = @file_get_contents($cfg['endpoint'] . $path, false, $context);
         if (!is_string($raw) || $raw === '') {
@@ -155,6 +169,10 @@ class TimewebState
                 'content' => $body,
                 'timeout' => 12,
                 'ignore_errors' => true,
+            ],
+            'ssl' => [
+                'verify_peer' => false,
+                'verify_peer_name' => false,
             ],
         ]);
         $resp = @file_get_contents($cfg['endpoint'] . $path, false, $context);

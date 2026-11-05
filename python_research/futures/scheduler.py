@@ -18,9 +18,25 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from accounts_config import enabled_accounts
+from accounts_config import enabled_accounts, write_account_json
 
 MODE = "--live" if os.environ.get("LIVE_MODE") == "1" else "--dry-run"
+
+
+def set_calc_status(calculating: bool, stage: str = "") -> None:
+    try:
+        write_account_json(
+            "futures_calc_status",
+            "main",
+            {
+                "calculating": bool(calculating),
+                "stage": stage,
+                "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+            },
+            persist=True,
+        )
+    except Exception:
+        pass
 
 
 def run(args: list[str]) -> None:
@@ -51,11 +67,12 @@ def run_all_accounts(is_hourly: bool = False) -> None:
 
 
 def fast_startup_seed() -> None:
-    run(["schwartz_production.py"])
-    run_all_accounts(is_hourly=True)
+    # Do NOT run schwartz_production before bootstrap.py, otherwise stale seed bars overwrite S3!
+    set_calc_status(True, "Идёт расчёт стратегии и загрузка свежих свечей после запуска — подождите 1–2 минуты...")
 
 
 def hourly_bar_refresh() -> None:
+    set_calc_status(True, "Идёт обновление часовых свечей и пересчёт стратегии — подождите 1–2 минуты...")
     if os.environ.get("BOOTSTRAP", "1") != "0":
         run(["bootstrap.py"])
         run(["futures_dataset.py", "--no-oi"])
@@ -64,6 +81,7 @@ def hourly_bar_refresh() -> None:
 
 def five_minute_verification(is_hourly: bool = False) -> None:
     run_all_accounts(is_hourly=is_hourly)
+    set_calc_status(False, "Актуально")
 
 
 if __name__ == "__main__":

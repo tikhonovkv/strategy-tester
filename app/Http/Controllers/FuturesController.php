@@ -46,7 +46,14 @@ class FuturesController extends Controller
         if ($acc === 'main') {
             $names[] = "{$stem}.json";
         }
-        // Check runtime dataDir first, then S3, and only then git fallbackDir
+        // 1. Prefer Timeweb S3 first so multi-container / serverless deploys always see fresh data
+        foreach ($names as $name) {
+            $remote = TimewebState::readJson($name);
+            if (!empty($remote)) {
+                return $remote;
+            }
+        }
+        // 2. Check live runtime shared volume (storage/app/futures)
         foreach ($names as $name) {
             $runtimePath = $this->dataDir() . '/' . $name;
             if (file_exists($runtimePath)) {
@@ -56,21 +63,7 @@ class FuturesController extends Controller
                 }
             }
         }
-        foreach ($names as $name) {
-            $remote = TimewebState::readJson($name);
-            if (!empty($remote)) {
-                return $remote;
-            }
-        }
-        foreach ($names as $name) {
-            $fallbackPath = $this->fallbackDir() . '/' . $name;
-            if (file_exists($fallbackPath)) {
-                $d = json_decode((string) file_get_contents($fallbackPath), true);
-                if (is_array($d) && !empty($d)) {
-                    return $d;
-                }
-            }
-        }
+        // Never fall back to stale git-tracked files in fallbackDir(): show "Calculating..." instead
         return [];
     }
 
@@ -155,11 +148,17 @@ class FuturesController extends Controller
         $resolved = $this->resolveActiveAccount($request);
         $active = $resolved['active'];
         $accId = (string) ($active['id'] ?? 'main');
+        $signals = $this->readAccountJson('futures_signals', $accId);
+        $compare = $this->readAccountJson('futures_compare', $accId);
+        $calcStatus = $this->readAccountJson('futures_calc_status', 'main');
+        $isCalculating = empty($compare['periods']) || !empty($calcStatus['calculating']);
 
         return view('site.futures', [
             'config' => $this->modelConfig($active),
-            'signals' => $this->readAccountJson('futures_signals', $accId),
-            'compare' => $this->readAccountJson('futures_compare', $accId),
+            'signals' => $signals,
+            'compare' => $compare,
+            'calcStatus' => $calcStatus,
+            'isCalculating' => $isCalculating,
             'activeAccount' => $active,
             'accounts' => $resolved['visible'],
             'allAccounts' => $resolved['all'],

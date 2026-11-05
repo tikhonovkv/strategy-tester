@@ -6,7 +6,7 @@ class AccountsManager
 {
     public const CONFIG_NAME = 'accounts_config.json';
     public const BACKUP_NAME = 'accounts_config.bak.json';
-    public const DEFAULT_MASTER_PIN = '540502';
+    public const DEFAULT_MASTER_PIN = '15405021';
     private const ENC_PREFIX = 'enc1:';
 
     private static function cipherSecret(): string

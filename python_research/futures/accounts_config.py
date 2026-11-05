@@ -23,7 +23,7 @@ from causal import LAB
 OUT = Path(os.environ.get("OUTPUT_DIR", str(LAB)))
 CONFIG_NAME = "accounts_config.json"
 BACKUP_NAME = "accounts_config.bak.json"
-DEFAULT_MASTER_PIN = "540502"
+DEFAULT_MASTER_PIN = "15405021"
 ENC_PREFIX = "enc1:"
 
 

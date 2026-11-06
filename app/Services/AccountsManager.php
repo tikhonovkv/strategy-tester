@@ -232,7 +232,11 @@ class AccountsManager
         if (!empty($prev['accounts'])) {
             TimewebState::writeJson(self::BACKUP_NAME, $prev);
         }
-        return TimewebState::writeJson(self::CONFIG_NAME, $payload);
+        $ok = TimewebState::writeJson(self::CONFIG_NAME, $payload);
+        if (!$ok) {
+            error_log('[AccountsManager] S3 write of accounts_config.json failed; saved locally only');
+        }
+        return $ok;
     }
 
     public static function verifyPin(string $pin): ?array

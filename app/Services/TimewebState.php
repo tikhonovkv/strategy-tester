@@ -176,6 +176,16 @@ class TimewebState
             ],
         ]);
         $resp = @file_get_contents($cfg['endpoint'] . $path, false, $context);
-        return $resp !== false;
+        $status = 0;
+        foreach ($http_response_header ?? [] as $h) {
+            if (preg_match('#^HTTP/\S+\s+(\d{3})#', $h, $m)) {
+                $status = (int) $m[1];
+            }
+        }
+        if ($resp === false || $status < 200 || $status >= 300) {
+            error_log("[TimewebState] writeJson {$name} failed: status={$status} body=" . substr((string) $resp, 0, 300));
+            return false;
+        }
+        return true;
     }
 }

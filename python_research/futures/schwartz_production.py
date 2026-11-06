@@ -620,7 +620,7 @@ def scan_live_schwartz(now_ms: int | None = None) -> tuple[list[dict], dict]:
         while i > 240 and int(close_ts[i]) > now_ms:
             i -= 1
         t = int(close_ts[i])
-        if t > now_ms or now_ms - t > 2 * HOUR:
+        if t > now_ms or now_ms - t > 20 * 60 * 1000:
             continue
         bi = btc_map.get(t)
         if bi is None or bi < 240:

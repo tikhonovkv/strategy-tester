@@ -244,9 +244,17 @@ class FuturesTrader:
                             break
             if not fills:
                 return now_ms, 0.0, target_size
-            first_ts, first_px, first_qty = fills[-1]
-            base_qty = first_qty if len(fills) > 1 else target_size
-            return first_ts, first_px, base_qty
+            first_ts, first_px, _first_qty = fills[-1]
+            # Sum all partial fills belonging to the initial market order (within 60s of first_ts)
+            init_fills = [(ts, px, q) for ts, px, q in fills if abs(ts - first_ts) <= 60000]
+            first_order_qty = round(sum(q for _ts, _px, q in init_fills), 6)
+            if first_order_qty > 0:
+                first_px = sum(px * q for _ts, px, q in init_fills) / first_order_qty
+            base_qty = first_order_qty if first_order_qty > 0 else target_size
+            # Align recovered open timestamp to the hourly candle close if executed within 20m of the hour
+            if (first_ts % 3600000) <= 20 * 60 * 1000:
+                first_ts = (first_ts // 3600000) * 3600000
+            return first_ts, round(first_px, 6), base_qty
         except Exception as exc:
             print("  recover_open_ts err:", symbol, exc)
             return now_ms, 0.0, target_size
@@ -589,7 +597,12 @@ def main():
     for sym, p in list(pos.items()):
         st = state.get(sym) or {}
         s_coin = series.get(sym)
-        series_atr = float(s_coin["atr1h"][-1]) if s_coin and len(s_coin["atr1h"]) else 0.008
+        closed_idx = -1
+        if s_coin and len(s_coin["close_ts"]):
+            closed_idx = len(s_coin["close_ts"]) - 1
+            while closed_idx > 0 and int(s_coin["close_ts"][closed_idx]) > now:
+                closed_idx -= 1
+        series_atr = float(s_coin["atr1h"][closed_idx]) if s_coin and closed_idx >= 0 else 0.008
         if not st.get("opened") or int(st.get("side") or p["side"]) != p["side"]:
             rec_ts, rec_px, rec_base = trader.recover_open_ts(sym, p["side"], p["size"], now)
             inferred_pyr = bool(st.get("pyr_done", False)) or (rec_base > 0 and float(p["size"]) >= rec_base * 1.25)
@@ -633,7 +646,7 @@ def main():
             st["peak_move"] = peak
             state[sym] = st
             save_state(state)
-        ema240_now = float(s_coin["ema240"][-1]) if s_coin else entry_px
+        ema240_now = float(s_coin["ema240"][closed_idx]) if s_coin and closed_idx >= 0 else entry_px
 
         # Full size until one exit. Hard stop and the 96h limit on every 5m tick.
         # Fast bail, breakeven and the 10d EMA only on the hourly close.
@@ -771,8 +784,10 @@ def main():
                 print(f"  OPEN {sym} order failed: {exc}", flush=True)
                 continue
         rem_free = max(0.0, rem_free - margin)
+        sig_ts = int(s.get("ts") or now)
         state[sym] = {
-            "opened": now,
+            "opened": sig_ts,
+            "opened_exec_ts": now,
             "entry_px": px,
             "base_qty": qty,
             "atr": atr,

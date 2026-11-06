@@ -5,8 +5,10 @@ merged. A full 550-day pull happens when the coin has no cache yet.
 """
 import json
 import os
+import sys
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 OUT = Path(os.environ.get("OUTPUT_DIR", str(Path(__file__).resolve().parent)))
@@ -22,6 +24,7 @@ COINS = [
     "UNIUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "INJUSDT", "FILUSDT",
     "TRXUSDT", "XLMUSDT", "ETCUSDT", "AAVEUSDT", "TIAUSDT",
 ]
+CORE_COINS = COINS[:9]
 HOUR = 3_600_000
 
 
@@ -99,37 +102,45 @@ def load_existing(sym):
     return {"bars": merged_bars, "funding": merged_fund}
 
 
+def refresh_coin(sym: str, now: int, history_start: int, fast: bool = False) -> str:
+    blob = load_existing(sym)
+    bars = blob.get("bars") or {}
+    fund = blob.get("funding") or {}
+    if bars:
+        first = min(int(k) for k in bars)
+        last = max(int(k) for k in bars)
+        if not fast and len(bars) < 4000 and first > history_start + 2 * HOUR:
+            bars.update(fetch_bars(sym, history_start, first))
+        bars.update(fetch_bars(sym, last - 2 * HOUR, now))
+    else:
+        bars.update(fetch_bars(sym, now - 14 * 24 * HOUR if fast else history_start, now))
+    if fund:
+        first_f = min(int(k) for k in fund)
+        last_f = max(int(k) for k in fund)
+        if not fast and len(fund) < 1200 and first_f > history_start:
+            fund.update(fetch_funding(sym, history_start, first_f))
+        fund.update(fetch_funding(sym, last_f - 86400000, now))
+    else:
+        fund.update(fetch_funding(sym, now - 30 * 86400000 if fast else history_start, now))
+    for folder in {DATA, SEED_DATA}:
+        folder.mkdir(parents=True, exist_ok=True)
+        tmp = folder / f"{sym}.json.tmp"
+        tmp.write_text(json.dumps({"bars": bars, "funding": fund}), encoding="utf-8")
+        os.replace(tmp, folder / f"{sym}.json")
+    last = max(int(k) for k in bars) if bars else 0
+    return f"{sym}: bars={len(bars)} funding={len(fund)} last={last}"
+
+
 def main():
+    fast = "--fast" in sys.argv[1:]
     now = int(time.time() * 1000)
     history_start = 1640995200000  # 2022-01-01 UTC
-    for sym in COINS:
-        blob = load_existing(sym)
-        bars = blob.get("bars") or {}
-        fund = blob.get("funding") or {}
-        if bars:
-            first = min(int(k) for k in bars)
-            last = max(int(k) for k in bars)
-            if first > history_start + 2 * HOUR:
-                bars.update(fetch_bars(sym, history_start, first))
-            bars.update(fetch_bars(sym, last - 2 * HOUR, now))
-        else:
-            bars.update(fetch_bars(sym, history_start, now))
-        if fund:
-            first_f = min(int(k) for k in fund)
-            last_f = max(int(k) for k in fund)
-            if first_f > history_start:
-                fund.update(fetch_funding(sym, history_start, first_f))
-            fund.update(fetch_funding(sym, last_f - 86400000, now))
-        else:
-            fund.update(fetch_funding(sym, history_start, now))
-        for folder in {DATA, SEED_DATA}:
-            folder.mkdir(parents=True, exist_ok=True)
-            tmp = folder / f"{sym}.json.tmp"
-            tmp.write_text(json.dumps({"bars": bars, "funding": fund}), encoding="utf-8")
-            os.replace(tmp, folder / f"{sym}.json")
-        last = max(int(k) for k in bars) if bars else 0
-        print(f"{sym}: bars={len(bars)} funding={len(fund)} last={last}", flush=True)
-    print("bootstrap done")
+    target_coins = CORE_COINS if fast else COINS
+    with ThreadPoolExecutor(max_workers=9 if fast else 8) as pool:
+        results = list(pool.map(lambda s: refresh_coin(s, now, history_start, fast=fast), target_coins))
+    for line in results:
+        print(line, flush=True)
+    print("bootstrap fast done" if fast else "bootstrap done", flush=True)
 
 
 if __name__ == "__main__":

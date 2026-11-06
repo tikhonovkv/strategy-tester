@@ -49,15 +49,32 @@ def run(args: list[str]) -> None:
         print((r.stderr or "")[-2500:], flush=True)
 
 
-def run_all_accounts(is_hourly: bool = False) -> None:
+def get_enabled_accounts() -> list[dict]:
     try:
         accounts = enabled_accounts()
     except Exception as exc:
         print(f"[WARN] enabled_accounts fallback to main: {exc}", flush=True)
         accounts = [{"id": "main"}]
-    if not accounts:
-        accounts = [{"id": "main"}]
-    for acc in accounts:
+    return accounts or [{"id": "main"}]
+
+
+def run_live_bot_accounts(is_hourly: bool = False) -> None:
+    for acc in get_enabled_accounts():
+        acc_id = str(acc.get("id") or "main")
+        cmd = ["live_bot.py", MODE, "--account", acc_id]
+        if is_hourly:
+            cmd.append("--hourly-close")
+        run(cmd)
+
+
+def run_compare_accounts() -> None:
+    for acc in get_enabled_accounts():
+        acc_id = str(acc.get("id") or "main")
+        run(["compare_live.py", "--account", acc_id])
+
+
+def run_all_accounts(is_hourly: bool = False) -> None:
+    for acc in get_enabled_accounts():
         acc_id = str(acc.get("id") or "main")
         cmd = ["live_bot.py", MODE, "--account", acc_id]
         if is_hourly:
@@ -76,7 +93,6 @@ def hourly_bar_refresh() -> None:
     try:
         if os.environ.get("BOOTSTRAP", "1") != "0":
             run(["bootstrap.py"])
-            run(["futures_dataset.py", "--no-oi"])
         run(["schwartz_production.py"])
     finally:
         set_calc_status(False, "Актуально")
@@ -87,17 +103,34 @@ def five_minute_verification(is_hourly: bool = False) -> None:
     set_calc_status(False, "Актуально")
 
 
+def sleep_until_next_tick() -> None:
+    """Sleep until the next 5-minute mark, waking up at HH:00:02 UTC on the hour boundary."""
+    now_ts = time.time()
+    next_hour = (int(now_ts) // 3600 + 1) * 3600 + 2.0
+    next_5m = (int(now_ts) // 300 + 1) * 300 + 2.0
+    target = min(next_hour, next_5m)
+    wait_s = max(1.0, min(305.0, target - now_ts))
+    time.sleep(wait_s)
+
+
 if __name__ == "__main__":
-    fast_startup_seed()
+    if os.environ.get("BOOTSTRAP", "1") != "0":
+        run(["bootstrap.py", "--fast"])
+    run_live_bot_accounts(is_hourly=True)
     hourly_bar_refresh()
-    five_minute_verification(is_hourly=True)
+    run_compare_accounts()
     last_bar_hour = datetime.now(timezone.utc).hour
     while True:
-        time.sleep(300)  # Check every 5 minutes
+        sleep_until_next_tick()
         now = datetime.now(timezone.utc)
-        did_hourly = False
-        if now.hour != last_bar_hour and now.minute >= 2:
-            hourly_bar_refresh()
+        if now.hour != last_bar_hour:
+            # 1. Fast pull of the newly closed hourly candle (~1s) + immediate live trade execution at HH:00:02 UTC!
+            if os.environ.get("BOOTSTRAP", "1") != "0":
+                run(["bootstrap.py", "--fast"])
+            run_live_bot_accounts(is_hourly=True)
             last_bar_hour = now.hour
-            did_hourly = True
-        five_minute_verification(is_hourly=did_hourly)
+            # 2. Full 25-coin refresh + backtest + live comparison table update after trade is placed
+            hourly_bar_refresh()
+            run_compare_accounts()
+        else:
+            five_minute_verification(is_hourly=False)

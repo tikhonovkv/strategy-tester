@@ -123,31 +123,44 @@ def fetch_live_executions_and_closed_pnl(account_id: str = "main"):
     except Exception:
         pass
 
-    # 2. Recent executions (last 14 days, 2 fast calls)
+    # 2. Recent executions (last 14 days with cursor pagination so partial fills never overflow limit=100)
     fills = []
+    seen_exec_ids = set()
     for i in range(2):
         end = now - i * 7 * day
         start = end - 7 * day
-        try:
-            d = client.private_get(
-                "/v5/execution/list",
-                {"category": "linear", "limit": "100", "startTime": str(start), "endTime": str(end)},
-            )
-            for r in (d.get("result") or {}).get("list") or []:
-                if str(r.get("execType") or "Trade") != "Trade":
-                    continue
-                sym = str(r.get("symbol") or "")
-                coin = sym.replace("USDT", "")
-                fills.append({
-                    "coin": coin,
-                    "symbol": sym,
-                    "side": 1 if str(r.get("side")).lower() == "buy" else -1,
-                    "ts": int(r.get("execTime") or 0),
-                    "qty": float(r.get("execQty") or 0),
-                    "px": float(r.get("execPrice") or 0),
-                })
-        except Exception:
-            pass
+        cursor = ""
+        for _page in range(5):
+            try:
+                q_params = {"category": "linear", "limit": "100", "startTime": str(start), "endTime": str(end)}
+                if cursor:
+                    q_params["cursor"] = cursor
+                d = client.private_get("/v5/execution/list", q_params)
+                res_obj = d.get("result") or {}
+                rows = res_obj.get("list") or []
+                for r in rows:
+                    if str(r.get("execType") or "Trade") != "Trade":
+                        continue
+                    exec_id = str(r.get("execId") or "")
+                    if exec_id and exec_id in seen_exec_ids:
+                        continue
+                    if exec_id:
+                        seen_exec_ids.add(exec_id)
+                    sym = str(r.get("symbol") or "")
+                    coin = sym.replace("USDT", "")
+                    fills.append({
+                        "coin": coin,
+                        "symbol": sym,
+                        "side": 1 if str(r.get("side")).lower() == "buy" else -1,
+                        "ts": int(r.get("execTime") or 0),
+                        "qty": float(r.get("execQty") or 0),
+                        "px": float(r.get("execPrice") or 0),
+                    })
+                cursor = str(res_obj.get("nextPageCursor") or "")
+                if not cursor or len(rows) < 100:
+                    break
+            except Exception:
+                break
     fills.sort(key=lambda x: x["ts"])
 
     # 3. Closed PnL history over last 90 days (first call without time filter for latest records, then weekly windows)
@@ -178,20 +191,26 @@ def fetch_live_executions_and_closed_pnl(account_id: str = "main"):
                     acc_q = 0.0
                     for fl in reversed(fills):
                         if fl["symbol"] == sym and fl["side"] == pos_side and fl["ts"] <= ut:
+                            if acc_q >= closed_size * 0.98 and (entry_ts - fl["ts"]) > 60000:
+                                break
                             acc_q += fl["qty"]
                             entry_ts = fl["ts"]
-                            if acc_q >= closed_size * 0.90:
+                            if acc_q >= closed_size * 1.005:
                                 break
+                    # Align hourly entry timestamps (executed within 10m of the hour close) to the exact HH:00 candle close
+                    display_entry_ts = (entry_ts // 3600000) * 3600000 if (entry_ts % 3600000) <= 10 * 60 * 1000 else entry_ts
+                    display_exit_ts = (ut // 3600000) * 3600000 if (ut % 3600000) <= 10 * 60 * 1000 and (ut - entry_ts) >= 1800000 else ut
                     closed_pnl.append({
                         "event_type": "trade",
                         "order_id": oid,
                         "symbol": sym,
                         "coin": sym.replace("USDT", ""),
                         "side": pos_side,
-                        "created_ts": entry_ts,
+                        "created_ts": display_entry_ts,
+                        "exec_entry_ts": entry_ts,
                         "closed_ts": ut,
-                        "time": iso(entry_ts),
-                        "exit_time": iso(ut),
+                        "time": iso(display_entry_ts),
+                        "exit_time": iso(display_exit_ts),
                         "qty": closed_size,
                         "entry_price": float(r.get("avgEntryPrice") or 0),
                         "exit_price": float(r.get("avgExitPrice") or 0),

@@ -1,6 +1,20 @@
 FROM php:8.1-alpine
 
 ENV COMPOSER_VERSION=v2
+
+# S3 settings come from build args (docker-compose build.args) and become runtime env.
+ARG S3_BUCKET=""
+ARG S3_ACCESS_KEY=""
+ARG S3_SECRET_KEY=""
+ARG S3_ENDPOINT="https://s3.twcstorage.ru"
+ARG S3_REGION="ru-1"
+ARG S3_PREFIX="bybit-futures"
+ENV S3_BUCKET=$S3_BUCKET \
+    S3_ACCESS_KEY=$S3_ACCESS_KEY \
+    S3_SECRET_KEY=$S3_SECRET_KEY \
+    S3_ENDPOINT=$S3_ENDPOINT \
+    S3_REGION=$S3_REGION \
+    S3_PREFIX=$S3_PREFIX
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 RUN apk update && apk add git wget zip unzip libzip-dev oniguruma-dev libxml2-dev sqlite-dev
 RUN docker-php-ext-install mysqli pdo pdo_mysql pdo_sqlite bcmath mbstring zip opcache

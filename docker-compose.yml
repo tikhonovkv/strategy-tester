@@ -1,7 +1,15 @@
 # Timeweb Cloud App Platform — Docker Compose.
 services:
   web:
-    build: .
+    build:
+      context: .
+      args:
+        - S3_BUCKET=${S3_BUCKET:-}
+        - S3_ACCESS_KEY=${S3_ACCESS_KEY:-}
+        - S3_SECRET_KEY=${S3_SECRET_KEY:-}
+        - S3_ENDPOINT=${S3_ENDPOINT:-https://s3.twcstorage.ru}
+        - S3_REGION=${S3_REGION:-ru-1}
+        - S3_PREFIX=${S3_PREFIX:-bybit-futures}
     ports:
       - "${PORT:-8080}:80"
     restart: unless-stopped
@@ -16,7 +24,15 @@ services:
       - futures-state:/var/www/html/storage/app/futures
 
   futures-bot:
-    build: ./python_research/futures
+    build:
+      context: ./python_research/futures
+      args:
+        - S3_BUCKET=${S3_BUCKET:-}
+        - S3_ACCESS_KEY=${S3_ACCESS_KEY:-}
+        - S3_SECRET_KEY=${S3_SECRET_KEY:-}
+        - S3_ENDPOINT=${S3_ENDPOINT:-https://s3.twcstorage.ru}
+        - S3_REGION=${S3_REGION:-ru-1}
+        - S3_PREFIX=${S3_PREFIX:-bybit-futures}
     restart: unless-stopped
     environment:
       - BYBIT_API_KEY=${BYBIT_API_KEY}

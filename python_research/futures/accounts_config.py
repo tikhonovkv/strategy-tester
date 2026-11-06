@@ -186,26 +186,43 @@ def _normalize_account(raw: dict, is_first: bool = False) -> dict:
     }
 
 
+def _local_config() -> dict | None:
+    for d in (OUT, LAB):
+        p = d / CONFIG_NAME
+        if p.exists():
+            try:
+                cand = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(cand, dict) and cand.get("accounts"):
+                    return cand
+            except Exception:
+                pass
+    return None
+
+
 def load_accounts_config(seed_if_missing: bool = True) -> dict:
+    """Read the account list. Never overwrite S3 with a default on a transient read error.
+
+    - S3 has a config -> use it.
+    - S3 explicitly 404 (no file yet) -> seed defaults ONLY if seed_if_missing.
+    - S3 unreachable / bad response -> use the local cache; if none, raise instead of
+      silently replacing the real config with the default.
+    """
     data = None
+    s3_ok = True
     try:
-        data = s3_storage.get_json(CONFIG_NAME)
-    except Exception:
-        data = None
+        data = s3_storage.get_json_strict(CONFIG_NAME)
+    except s3_storage.S3ReadError as exc:
+        s3_ok = False
+        print(f"  [accounts] S3 read failed, not seeding defaults: {exc}", flush=True)
     if not isinstance(data, dict) or not data.get("accounts"):
-        for d in (OUT, LAB):
-            p = d / CONFIG_NAME
-            if p.exists():
-                try:
-                    cand = json.loads(p.read_text(encoding="utf-8"))
-                    if isinstance(cand, dict) and cand.get("accounts"):
-                        data = cand
-                        break
-                except Exception:
-                    pass
+        local = _local_config()
+        if local is not None and (not s3_ok or data is None):
+            data = local
     if not isinstance(data, dict) or not data.get("accounts"):
+        if not s3_ok:
+            raise RuntimeError("accounts_config.json unreachable in S3 and no local cache; refusing to overwrite with defaults")
         data = default_config()
-        if seed_if_missing:
+        if seed_if_missing and s3_ok and s3_storage.settings() is not None:
             save_accounts_config(data)
 
     raw_accounts = data.get("accounts") or []

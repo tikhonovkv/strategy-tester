@@ -1,4 +1,4 @@
-﻿"""Timeweb Cloud S3. Keys come from the environment or bybit.env, never from code."""
+"""Timeweb Cloud S3. Keys come from the environment or bybit.env, never from code."""
 from __future__ import annotations
 
 import hashlib
@@ -138,6 +138,30 @@ def object_key(name: str, cfg: dict[str, str] | None = None) -> str:
     cfg = cfg or settings() or {}
     prefix = cfg.get("prefix") or "bybit-futures"
     return f"{prefix}/{name}"
+
+
+class S3ReadError(RuntimeError):
+    """Transient read failure (network / 5xx). Callers must NOT treat it as 'file absent'."""
+
+
+def get_json_strict(name: str) -> dict | None:
+    """Return the object, None only on an explicit 404, raise S3ReadError on any other failure."""
+    cfg = settings()
+    if cfg is None or not cfg["bucket"]:
+        return None
+    key = object_key(name, cfg)
+    url = f"{cfg['endpoint']}/{cfg['bucket']}/{key}"
+    try:
+        raw = _request("GET", url, b"", "", cfg)
+    except RuntimeError as exc:
+        if " 404:" in str(exc):
+            return None
+        raise S3ReadError(str(exc)) from exc
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except Exception as exc:
+        raise S3ReadError(f"bad json in {name}: {exc}") from exc
+    return data if isinstance(data, dict) else None
 
 
 def get_json(name: str) -> dict | None:

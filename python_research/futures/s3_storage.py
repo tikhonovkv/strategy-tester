@@ -16,6 +16,29 @@ EMPTY = hashlib.sha256(b"").hexdigest()
 
 def _env_file() -> dict[str, str]:
     out: dict[str, str] = {}
+    # 1. Read PID 1 environment on Linux if available
+    proc_env = Path("/proc/1/environ")
+    if proc_env.exists():
+        try:
+            for pair in proc_env.read_bytes().decode("utf-8", errors="ignore").split("\0"):
+                if "=" in pair:
+                    k, _, v = pair.partition("=")
+                    if v.strip():
+                        out[k.strip()] = v.strip()
+        except Exception:
+            pass
+    # 2. Read shared volume .s3_runtime_env.json if present
+    out_dir = Path(os.environ.get("OUTPUT_DIR", str(Path(__file__).resolve().parent)))
+    for sp in (out_dir / ".s3_runtime_env.json", Path(__file__).resolve().parent / ".s3_runtime_env.json"):
+        if sp.exists():
+            try:
+                blob = json.loads(sp.read_text(encoding="utf-8"))
+                if isinstance(blob, dict):
+                    for k, v in blob.items():
+                        if isinstance(v, str) and v.strip() and k not in out:
+                            out[k] = v.strip()
+            except Exception:
+                pass
     home = Path.home() / ".cursor"
     for path in (
         home / "bybit-top25-scan-state" / "bybit.env",
@@ -33,10 +56,11 @@ def _env_file() -> dict[str, str]:
 
 
 _warned_missing = False
+_saved_runtime_env = False
 
 
 def settings() -> dict[str, str] | None:
-    global _warned_missing
+    global _warned_missing, _saved_runtime_env
     file_vals = _env_file()
 
     def pick(*names: str) -> str:
@@ -55,15 +79,34 @@ def settings() -> dict[str, str] | None:
             missing = [n for n, v in (("S3_BUCKET", bucket), ("S3_ACCESS_KEY", access), ("S3_SECRET_KEY", secret)) if not v]
             print(f"[s3_storage] S3 disabled, empty env: {', '.join(missing)}", flush=True)
         return None
-    endpoint = pick("S3_ENDPOINT") or "https://s3.twcstorage.ru"
+    endpoint = (pick("S3_ENDPOINT") or "https://s3.twcstorage.ru").rstrip("/")
     region = pick("S3_REGION") or "ru-1"
+    prefix = (pick("S3_PREFIX") or "bybit-futures").strip("/")
+    if not _saved_runtime_env:
+        _saved_runtime_env = True
+        try:
+            out_dir = Path(os.environ.get("OUTPUT_DIR", str(Path(__file__).resolve().parent)))
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / ".s3_runtime_env.json").write_text(
+                json.dumps({
+                    "S3_BUCKET": bucket,
+                    "S3_ACCESS_KEY": access,
+                    "S3_SECRET_KEY": secret,
+                    "S3_ENDPOINT": endpoint,
+                    "S3_REGION": region,
+                    "S3_PREFIX": prefix,
+                }),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
     return {
         "bucket": bucket,
         "access": access,
         "secret": secret,
-        "endpoint": endpoint.rstrip("/"),
+        "endpoint": endpoint,
         "region": region,
-        "prefix": (pick("S3_PREFIX") or "bybit-futures").strip("/"),
+        "prefix": prefix,
     }
 
 

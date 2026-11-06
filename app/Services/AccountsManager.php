@@ -151,16 +151,27 @@ class AccountsManager
 
     public static function loadConfig(): array
     {
-        $data = TimewebState::readJson(self::CONFIG_NAME);
-        if (empty($data['accounts'])) {
-            foreach (self::localPaths() as $path) {
-                if (is_file($path)) {
-                    $cand = json_decode((string) file_get_contents($path), true);
-                    if (is_array($cand) && !empty($cand['accounts'])) {
-                        $data = $cand;
-                        break;
-                    }
+        $s3Data = TimewebState::readJson(self::CONFIG_NAME);
+        $localData = [];
+        foreach (self::localPaths() as $path) {
+            if (is_file($path)) {
+                $cand = json_decode((string) file_get_contents($path), true);
+                if (is_array($cand) && !empty($cand['accounts'])) {
+                    $localData = $cand;
+                    break;
                 }
+            }
+        }
+        $data = $s3Data;
+        if (empty($data['accounts'])) {
+            $data = $localData;
+        } elseif (!empty($localData['accounts'])) {
+            // If local shared-volume config was updated more recently (e.g. saved while S3 was unreachable), prefer it and sync to S3!
+            $s3Updated = (string) ($s3Data['updated_at'] ?? '');
+            $locUpdated = (string) ($localData['updated_at'] ?? '');
+            if ($locUpdated !== '' && ($s3Updated === '' || strcmp($locUpdated, $s3Updated) > 0 || count($localData['accounts']) > count($s3Data['accounts']))) {
+                $data = $localData;
+                TimewebState::writeJson(self::CONFIG_NAME, $localData);
             }
         }
         if (empty($data['accounts'])) {

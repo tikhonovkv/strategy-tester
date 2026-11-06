@@ -214,10 +214,20 @@ def load_accounts_config(seed_if_missing: bool = True) -> dict:
     except s3_storage.S3ReadError as exc:
         s3_ok = False
         print(f"  [accounts] S3 read failed, not seeding defaults: {exc}", flush=True)
+    local = _local_config()
     if not isinstance(data, dict) or not data.get("accounts"):
-        local = _local_config()
         if local is not None and (not s3_ok or data is None):
             data = local
+    elif isinstance(local, dict) and local.get("accounts"):
+        s3_upd = str(data.get("updated_at") or "")
+        loc_upd = str(local.get("updated_at") or "")
+        if (loc_upd and (not s3_upd or loc_upd > s3_upd)) or len(local.get("accounts") or []) > len(data.get("accounts") or []):
+            data = local
+            if s3_ok and s3_storage.settings() is not None:
+                try:
+                    s3_storage.put_json(CONFIG_NAME, local)
+                except Exception:
+                    pass
     if not isinstance(data, dict) or not data.get("accounts"):
         if not s3_ok:
             raise RuntimeError("accounts_config.json unreachable in S3 and no local cache; refusing to overwrite with defaults")

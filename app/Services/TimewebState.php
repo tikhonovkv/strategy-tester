@@ -50,14 +50,47 @@ class TimewebState
     private static function envFile(): array
     {
         $out = [];
-        $home = getenv('USERPROFILE') ?: getenv('HOME') ?: '';
-        if (!$home) {
-            return $out;
+        // 1. Read PID 1 environment on Linux (bypasses `php artisan serve` stripping env vars when .env exists)
+        if (is_readable('/proc/1/environ')) {
+            $rawEnv = @file_get_contents('/proc/1/environ');
+            if (is_string($rawEnv) && $rawEnv !== '') {
+                foreach (explode("\0", $rawEnv) as $pair) {
+                    if ($pair !== '' && str_contains($pair, '=')) {
+                        [$k, $v] = explode('=', $pair, 2);
+                        $v = trim($v);
+                        if ($v !== '') {
+                            $out[trim($k)] = $v;
+                        }
+                    }
+                }
+            }
         }
-        $paths = [
-            $home . '/.cursor/bybit-top25-scan-state/bybit.env',
-            $home . '/.cursor/wallet-bybit-arb-state/bybit.env',
+        // 2. Read shared volume S3 config written by futures-bot container
+        $sharedPaths = [
+            storage_path('app/futures/.s3_runtime_env.json'),
+            base_path('python_research/futures/.s3_runtime_env.json'),
         ];
+        foreach ($sharedPaths as $sp) {
+            if (is_file($sp)) {
+                $cand = json_decode((string) @file_get_contents($sp), true);
+                if (is_array($cand)) {
+                    foreach ($cand as $k => $v) {
+                        if (is_string($v) && trim($v) !== '' && empty($out[$k])) {
+                            $out[$k] = trim($v);
+                        }
+                    }
+                }
+            }
+        }
+        // 3. Read .env files if present
+        $home = getenv('USERPROFILE') ?: getenv('HOME') ?: '';
+        $paths = [
+            base_path('.env'),
+        ];
+        if ($home) {
+            $paths[] = $home . '/.cursor/bybit-top25-scan-state/bybit.env';
+            $paths[] = $home . '/.cursor/wallet-bybit-arb-state/bybit.env';
+        }
         foreach ($paths as $p) {
             if (!is_file($p)) {
                 continue;
@@ -68,7 +101,10 @@ class TimewebState
                     continue;
                 }
                 [$k, $v] = explode('=', $line, 2);
-                $out[trim($k)] = trim(trim($v), "\"'");
+                $val = trim(trim($v), "\"'");
+                if ($val !== '' && empty($out[trim($k)])) {
+                    $out[trim($k)] = $val;
+                }
             }
         }
         return $out;

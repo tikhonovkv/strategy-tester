@@ -137,6 +137,11 @@ class TimewebState
                 $missing[] = $env;
             }
         }
+        if ($missing) {
+            // Names only, never values: shows which S3-like variables this process can see at all.
+            $seen = array_values(array_filter(array_keys(getenv() ?: []), fn ($k) => str_starts_with((string) $k, 'S3_') || str_starts_with((string) $k, 'AWS_')));
+            error_log('[TimewebState] visible S3/AWS env names: ' . ($seen ? implode(', ', $seen) : 'none'));
+        }
         return $missing;
     }
 

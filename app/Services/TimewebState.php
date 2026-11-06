@@ -77,7 +77,8 @@ class TimewebState
     public static function readJson(string $name): array
     {
         $cfg = self::settings();
-        if (!$cfg['bucket'] || !$cfg['access'] || !$cfg['secret']) {
+        if ($missing = self::missingSettings($cfg)) {
+            error_log('[TimewebState] readJson ' . $name . ' skipped, empty env: ' . implode(', ', $missing));
             return [];
         }
         $path = '/' . $cfg['bucket'] . '/' . $cfg['prefix'] . '/' . ltrim($name, '/');
@@ -127,10 +128,23 @@ class TimewebState
         return is_array($data) ? $data : [];
     }
 
+    /** Names of S3 settings that are empty in this process (values are never logged). */
+    public static function missingSettings(array $cfg): array
+    {
+        $missing = [];
+        foreach (['bucket' => 'S3_BUCKET', 'access' => 'S3_ACCESS_KEY', 'secret' => 'S3_SECRET_KEY'] as $key => $env) {
+            if (empty($cfg[$key])) {
+                $missing[] = $env;
+            }
+        }
+        return $missing;
+    }
+
     public static function writeJson(string $name, array $data): bool
     {
         $cfg = self::settings();
-        if (!$cfg['bucket'] || !$cfg['access'] || !$cfg['secret']) {
+        if ($missing = self::missingSettings($cfg)) {
+            error_log('[TimewebState] writeJson ' . $name . ' skipped, empty env: ' . implode(', ', $missing));
             return false;
         }
         $body = (string) json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);

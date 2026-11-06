@@ -32,7 +32,11 @@ def _env_file() -> dict[str, str]:
     return out
 
 
+_warned_missing = False
+
+
 def settings() -> dict[str, str] | None:
+    global _warned_missing
     file_vals = _env_file()
 
     def pick(*names: str) -> str:
@@ -45,7 +49,11 @@ def settings() -> dict[str, str] | None:
     bucket = pick("S3_BUCKET", "AWS_BUCKET")
     access = pick("S3_ACCESS_KEY", "AWS_ACCESS_KEY_ID")
     secret = pick("S3_SECRET_KEY", "AWS_SECRET_ACCESS_KEY")
-    if not access or not secret:
+    if not bucket or not access or not secret:
+        if not _warned_missing:
+            _warned_missing = True
+            missing = [n for n, v in (("S3_BUCKET", bucket), ("S3_ACCESS_KEY", access), ("S3_SECRET_KEY", secret)) if not v]
+            print(f"[s3_storage] S3 disabled, empty env: {', '.join(missing)}", flush=True)
         return None
     endpoint = pick("S3_ENDPOINT") or "https://s3.twcstorage.ru"
     region = pick("S3_REGION") or "ru-1"
